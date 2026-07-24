@@ -913,6 +913,7 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
     
     CcspTraceInfo(("%s-%d: Successfully created MACVLAN untagged interface %s\n", 
                    __FUNCTION__, __LINE__, pEntry->Name));
+
 #endif
     //Free VlanCfg skb_config memory
     if (VlanCfg.skb_config != NULL)
@@ -1245,7 +1246,7 @@ ANSC_STATUS EthLink_GetMacAddr( PDML_ETHERNET pEntry )
     char macStr[32];
     int i, j = 0;
 
-    if (pEntry->InstanceNumber <= 0)
+    if (!pEntry || pEntry->InstanceNumber <= 0)
     {
         CcspTraceError(("%s-%d: Failed to get Mac Address, EthLinkInstance=%ld ", __FUNCTION__, __LINE__, pEntry->InstanceNumber));
         return ANSC_STATUS_FAILURE;
@@ -1266,17 +1267,34 @@ ANSC_STATUS EthLink_GetMacAddr( PDML_ETHERNET pEntry )
     }
 
     acTmpReturnValue[j] = '\0';
-    sscanf(acTmpReturnValue, "%64llx", &number);
 
-    new_mac = number + pEntry->MACAddrOffSet;
-    snprintf(hex, sizeof(hex), "%08llx", new_mac);
+    if (sscanf(acTmpReturnValue, "%llx", &number) != 1)
+       {
+               CcspTraceError(("[%s][%d] Failed to parse MAC address %s\n",
+                                       __FUNCTION__, __LINE__, acTmpReturnValue));
+               return ANSC_STATUS_FAILURE;
+       }
 
-    snprintf(macStr, sizeof(macStr), "%c%c:%c%c:%c%c:%c%c:%c%c:%c%c",
-            hex[0], hex[1], hex[2], hex[3], hex[4], hex[5], hex[6], hex[7], hex[8], hex[9], hex[10], hex[11]);
+       new_mac = number + pEntry->MACAddrOffSet;
 
-    strncpy(pEntry->MACAddress, macStr, sizeof(pEntry->MACAddress) - 1);
+        /* Always preserve leading zeros of a 48-bit MAC */
+    snprintf(hex, sizeof(hex), "%012llx", new_mac);
+
+    snprintf(macStr, sizeof(macStr),
+             "%c%c:%c%c:%c%c:%c%c:%c%c:%c%c",
+             hex[0], hex[1],
+             hex[2], hex[3],
+             hex[4], hex[5],
+             hex[6], hex[7],
+             hex[8], hex[9],
+             hex[10], hex[11]);
+
+    strncpy(pEntry->MACAddress, macStr,
+            sizeof(pEntry->MACAddress) - 1);
+    pEntry->MACAddress[sizeof(pEntry->MACAddress) - 1] = '\0';
 
     return ANSC_STATUS_SUCCESS;
+
 }
 
 #if defined(COMCAST_VLAN_HAL_ENABLED)
