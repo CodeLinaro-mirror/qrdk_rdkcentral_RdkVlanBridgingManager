@@ -37,6 +37,8 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <stdarg.h>
 #include <net/if.h>
 #include <syscfg/syscfg.h>
 
@@ -95,6 +97,61 @@
 extern ANSC_HANDLE                        g_MessageBusHandle;
         int                               sysevent_fd = -1;
         token_t                           sysevent_token;
+
+/*
+ * EthLink_RunCmd - run a shell command, log it and all output (stdout+stderr),
+ * and return the exit code.  Use EXEC_CMD() to auto-inject __FUNCTION__/__LINE__.
+ */
+static int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...)
+{
+    char    cmd[512]   = {0};
+    char    redir[544] = {0};
+    va_list args;
+    FILE   *fp;
+    char    buf[256]   = {0};
+    int     status;
+
+    va_start(args, fmt);
+    vsnprintf(cmd, sizeof(cmd) - 1, fmt, args);
+    va_end(args);
+
+    CcspTraceInfo(("%s-%d: exec: %s\n", caller, line, cmd));
+
+    snprintf(redir, sizeof(redir) - 1, "%s 2>&1", cmd);
+    fp = popen(redir, "r");
+    if (fp == NULL)
+    {
+        CcspTraceError(("%s-%d: popen failed for: %s\n", caller, line, cmd));
+        return -1;
+    }
+
+    while (fgets(buf, sizeof(buf), fp) != NULL)
+    {
+        size_t len = strlen(buf);
+        if (len > 0 && buf[len - 1] == '\n')
+            buf[len - 1] = '\0';
+        if (buf[0] != '\0')
+            CcspTraceInfo(("%s-%d: [output] %s\n", caller, line, buf));
+    }
+
+    status = pclose(fp);
+    if (status == -1)
+    {
+        CcspTraceError(("%s-%d: pclose failed: %s\n", caller, line, cmd));
+        return -1;
+    }
+    if (WIFEXITED(status))
+    {
+        int rc = WEXITSTATUS(status);
+        if (rc != 0)
+            CcspTraceError(("%s-%d: failed (rc=%d): %s\n", caller, line, rc, cmd));
+        return rc;
+    }
+    if (WIFSIGNALED(status))
+        CcspTraceError(("%s-%d: killed by signal %d: %s\n", caller, line, WTERMSIG(status), cmd));
+    return -1;
+}
+#define EXEC_CMD(fmt, ...) EthLink_RunCmd(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
 
 static ANSC_STATUS DmlEthSetParamValues(const char *pComponent, char *pBus, char *pParamName, char *pParamVal, enum dataType_e type, unsigned int bCommitFlag);
 static ANSC_STATUS DmlEthGetParamNames(char *pComponent, char *pBus, char *pParamName, char a2cReturnVal[][256], int *pReturnSize);
@@ -885,13 +942,12 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
         case UNTAGGED_VLAN_TAG_0:
         {
             /* 802.1Q VLAN with tag id 0 (priority/untagged frames). */
-            v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
-                            pEntry->Name, pEntry->Name, pEntry->Name);
-            v_secure_system("ip link add link %s name %s type vlan id 0",
-                            pEntry->BaseInterface, pEntry->Name);
-            v_secure_system("ip link set %s up", pEntry->Name);
-            CcspTraceInfo(("%s-%d: Successfully created VLAN tag-0 untagged interface %s\n",
-                           __FUNCTION__, __LINE__, pEntry->Name));
+            EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+                     pEntry->Name, pEntry->Name, pEntry->Name);
+            EXEC_CMD("ip link add link %s name %s type vlan id 0",
+                     pEntry->BaseInterface, pEntry->Name);
+            EXEC_CMD("ip link set %s up", pEntry->Name);
+            CcspTraceInfo(("%s-%d: Created VLAN tag-0 interface %s\n", __FUNCTION__, __LINE__, pEntry->Name));
             break;
         }
         case UNTAGGED_MACVLAN_PRIVATE:
@@ -912,31 +968,31 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
             }
 
             /* Delete any pre-existing interface with this name. */
-            v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
-                            pEntry->Name, pEntry->Name, pEntry->Name);
+            EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+                     pEntry->Name, pEntry->Name, pEntry->Name);
 
             /* Get MAC address with offset applied. */
+            int rc;
             if (ANSC_STATUS_SUCCESS != EthLink_GetMacAddr(pEntry))
             {
-                CcspTraceError(("%s-%d: Failed to get MAC address, creating MACVLAN(%s) without custom MAC\n",
+                CcspTraceError(("%s-%d: Failed to get MAC, creating MACVLAN(%s) without custom MAC\n",
                                __FUNCTION__, __LINE__, macvlanMode));
-                v_secure_system("ip link add link %s name %s type macvlan mode %s",
-                                pEntry->BaseInterface, pEntry->Name, macvlanMode);
+                rc = EXEC_CMD("ip link add link %s name %s type macvlan mode %s",
+                              pEntry->BaseInterface, pEntry->Name, macvlanMode);
             }
             else
             {
-                CcspTraceInfo(("%s-%d: Using MAC address: %s (offset: %ld) mode %s\n",
+                CcspTraceInfo(("%s-%d: MAC %s (offset %ld) mode %s\n",
                                __FUNCTION__, __LINE__, pEntry->MACAddress, pEntry->MACAddrOffSet, macvlanMode));
-                v_secure_system("ip link add link %s name %s address %s type macvlan mode %s",
-                                pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress, macvlanMode);
+                rc = EXEC_CMD("ip link add link %s name %s address %s type macvlan mode %s",
+                              pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress, macvlanMode);
             }
-
-            v_secure_system("ip link set %s allmulticast on", pEntry->Name);
-            v_secure_system("ip link set %s multicast on", pEntry->Name);
-            v_secure_system("ip link set %s mtu 1500", pEntry->Name);
-            v_secure_system("ip link set %s up", pEntry->Name);
-
-            CcspTraceInfo(("%s-%d: Successfully created MACVLAN(%s) untagged interface %s\n",
+            (void)rc;
+            EXEC_CMD("ip link set %s allmulticast on", pEntry->Name);
+            EXEC_CMD("ip link set %s multicast on", pEntry->Name);
+            EXEC_CMD("ip link set %s mtu 1500", pEntry->Name);
+            EXEC_CMD("ip link set %s up", pEntry->Name);
+            CcspTraceInfo(("%s-%d: Created MACVLAN(%s) interface %s\n",
                            __FUNCTION__, __LINE__, macvlanMode, pEntry->Name));
             break;
         }
@@ -945,16 +1001,15 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
         {
             /* Default: Linux bridge via brctl. The base interface is enslaved
              * to a bridge that carries untagged traffic. */
-            v_secure_system("ip link show %s > /dev/null 2>&1 || brctl addbr %s",
-                            pEntry->Name, pEntry->Name);
+            EXEC_CMD("ip link show %s > /dev/null 2>&1 || brctl addbr %s",
+                     pEntry->Name, pEntry->Name);
             if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
                 (pEntry->BaseInterface[0] != '\0'))
             {
-                v_secure_system("brctl addif %s %s 2>/dev/null",
-                                pEntry->Name, pEntry->BaseInterface);
+                EXEC_CMD("brctl addif %s %s", pEntry->Name, pEntry->BaseInterface);
             }
-            v_secure_system("ifconfig %s up", pEntry->Name);
-            CcspTraceInfo(("%s-%d: Successfully created bridge untagged interface %s\n",
+            EXEC_CMD("ifconfig %s up", pEntry->Name);
+            CcspTraceInfo(("%s-%d: Created bridge interface %s\n",
                            __FUNCTION__, __LINE__, pEntry->Name));
             break;
         }
@@ -989,15 +1044,17 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
     {
         case UNTAGGED_SIMPLE_BRIDGE:
         default:
+        {
             /* Simple Linux bridge teardown via brctl. */
             if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
                 (pEntry->BaseInterface[0] != '\0'))
             {
-                v_secure_system("brctl delif %s %s", pEntry->Name, pEntry->BaseInterface);
+                EXEC_CMD("brctl delif %s %s", pEntry->Name, pEntry->BaseInterface);
             }
-            v_secure_system("ifconfig %s down", pEntry->Name);
-            v_secure_system("brctl delbr %s", pEntry->Name);
+            EXEC_CMD("ifconfig %s down", pEntry->Name);
+            EXEC_CMD("brctl delbr %s", pEntry->Name);
             break;
+        }
 
         case UNTAGGED_VLAN_TAG_0:
         case UNTAGGED_MACVLAN_PRIVATE:
@@ -1005,10 +1062,12 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
         case UNTAGGED_MACVLAN_BRIDGE:
         case UNTAGGED_MACVLAN_PASSTHRU:
         case UNTAGGED_MACVLAN_SOURCE:
+        {
             /* macvlan and vlan tag-0 devices are removed with ip link. */
-            v_secure_system("ip link set %s down", pEntry->Name);
-            v_secure_system("ip link delete %s", pEntry->Name);
+            EXEC_CMD("ip link set %s down", pEntry->Name);
+            EXEC_CMD("ip link delete %s", pEntry->Name);
             break;
+        }
     }
 
     CcspTraceInfo(("%s-%d: Successfully deleted untagged VLAN interface %s\n", 
