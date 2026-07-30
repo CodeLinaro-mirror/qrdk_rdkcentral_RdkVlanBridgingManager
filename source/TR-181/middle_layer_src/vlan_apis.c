@@ -128,6 +128,7 @@ static ANSC_STATUS Vlan_DeleteInterface(PDML_VLAN p_Vlan)
           return ANSC_STATUS_FAILURE;
      }
 
+     v_secure_system("ip link set %s down", p_Vlan->Name);
      v_secure_system("ip link delete %s", p_Vlan->Name);
 
      return ANSC_STATUS_SUCCESS;
@@ -243,8 +244,7 @@ static ANSC_STATUS Vlan_SetEthLink(PDML_VLAN pEntry, BOOL enable, BOOL PriTag)
     }
 
     /* Sync VLAN type to EthLink. TAGGED_VLAN(7) is harmless — EthLink_Enable
-     * skips untagged creation when PriorityTagging=TRUE.
-     * TODO: UNTAGGED_VLAN_TAG_0 may need PriorityTagging=TRUE in future. */
+     * skips untagged creation when PriorityTagging=TRUE. */
     ((PDML_ETHERNET)pNewEntry)->UnTaggedVlanType = (untagged_vlan_type_t)pEntry->UnTaggedVlanType;
     CcspTraceInfo(("%s-%d: VLAN type=%d synced to EthLink for %s\n",
                    __FUNCTION__, __LINE__, pEntry->UnTaggedVlanType, pEntry->Name));
@@ -378,7 +378,7 @@ void * Vlan_Disable(void *Arg)
     }
 
     //Delete Created Tagged Vlan Interface
-    if (pEntry->UnTaggedVlanType == TAGGED_VLAN)
+    if (pEntry->VLANId > 0 || pEntry->UnTaggedVlanType == UNTAGGED_VLAN_TAG_0)
     {
 #ifdef FEATURE_MAPT
         char wan_ifname[BUFLEN_64] = {0};
@@ -594,6 +594,8 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
 static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
 {
     ANSC_STATUS returnStatus = ANSC_STATUS_SUCCESS;
+    vlan_configuration_t VlanCfg = {0};
+    INT i;
 
     if (pEntry == NULL)
     {
@@ -601,14 +603,34 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
         return ANSC_STATUS_FAILURE;
     }
 
-    v_secure_system("ip link add link %s name %s type vlan id %u", pEntry->Alias , pEntry->Name, pEntry->VLANId);
-
+    v_secure_system("ip link add link %s name %s type vlan id %u", pEntry->Alias, pEntry->Name, pEntry->VLANId);
     v_secure_system("ip link set %s up", pEntry->Name);
 
     if (Vlan_SetMacAddr(pEntry) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s Failed to Set MacAddress \n", __FUNCTION__));
         return ANSC_STATUS_FAILURE;
+    }
+
+    /* Apply 802.1p egress QoS map: maps kernel skb priority (SKBMark) to the
+     * outgoing VLAN PCP (EthernetPriorityMark) on egress.
+     * Note: alias is a label only (no kernel equivalent).
+     *       skbPort would need tc-filter rules and is not set here. */
+    strncpy(VlanCfg.L3Interface, pEntry->Name, sizeof(VlanCfg.L3Interface) - 1);
+    VlanCfg.VLANId = pEntry->VLANId;
+    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_SUCCESS)
+    {
+        for (i = 0; i < (INT)VlanCfg.skbMarkingNumOfEntries; i++)
+        {
+            v_secure_system("ip link set %s type vlan egress-qos-map %u:%d",
+                            pEntry->Name,
+                            VlanCfg.skb_config[i].skbMark,
+                            VlanCfg.skb_config[i].skbEthPriorityMark);
+        }
+        if (VlanCfg.skb_config != NULL)
+        {
+            free(VlanCfg.skb_config);
+        }
     }
 
     return returnStatus;
@@ -663,8 +685,12 @@ void * Vlan_Enable(void *Arg)
     pthread_detach(pthread_self());
 
     pthread_mutex_lock(&vlan_access_mutex);
-    //Create Vlan Tagged or UnTagged Interface, selected by UnTaggedVlanType
-    if (pEntry->UnTaggedVlanType == TAGGED_VLAN) {
+    //Create Vlan Tagged or UnTagged Interface
+    /* UNTAGGED_VLAN_TAG_0 uses the tagged path: it is a 802.1Q VLAN device
+     * with id 0, so create/QoS/delete all work identically to tagged VLANs.
+     * PSM must store VLANId=0 for those entries. */
+    if (pEntry->VLANId > 0 || pEntry->UnTaggedVlanType == UNTAGGED_VLAN_TAG_0)
+    {
         if (Vlan_SetEthLink(pEntry, TRUE, TRUE) == ANSC_STATUS_FAILURE)
         {
             CcspTraceError(("%s-%d: Failed to Enable EthLink\n", __FUNCTION__, __LINE__));

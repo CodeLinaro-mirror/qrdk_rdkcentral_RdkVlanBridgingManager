@@ -939,17 +939,6 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
 
     switch (pEntry->UnTaggedVlanType)
     {
-        case UNTAGGED_VLAN_TAG_0:
-        {
-            /* 802.1Q VLAN with tag id 0 (priority/untagged frames). */
-            EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
-                     pEntry->Name, pEntry->Name, pEntry->Name);
-            EXEC_CMD("ip link add link %s name %s type vlan id 0",
-                     pEntry->BaseInterface, pEntry->Name);
-            EXEC_CMD("ip link set %s up", pEntry->Name);
-            CcspTraceInfo(("%s-%d: Created VLAN tag-0 interface %s\n", __FUNCTION__, __LINE__, pEntry->Name));
-            break;
-        }
         case UNTAGGED_MACVLAN_PRIVATE:
         case UNTAGGED_MACVLAN_VEPA:
         case UNTAGGED_MACVLAN_BRIDGE:
@@ -1056,7 +1045,6 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
             break;
         }
 
-        case UNTAGGED_VLAN_TAG_0:
         case UNTAGGED_MACVLAN_PRIVATE:
         case UNTAGGED_MACVLAN_VEPA:
         case UNTAGGED_MACVLAN_BRIDGE:
