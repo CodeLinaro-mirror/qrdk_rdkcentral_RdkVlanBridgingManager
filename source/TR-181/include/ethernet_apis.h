@@ -87,6 +87,32 @@ typedef enum {
                ETH_IF_ERROR 
 }ethernet_link_status_e;
 
+/*
+ * Untagged VLAN interface type.
+ * Selects how VlanManager realises an untagged (VLANID <= 0) virtual
+ * interface on top of the base interface.
+ *
+ * Values map to the DM parameter UntaggedVlanType (uint32, mapped to string):
+ *   0=Bridge, 1=MacvlanPrivate, 2=MacvlanVepa, 3=MacvlanBridge,
+ *   4=MacvlanPassthru, 5=MacvlanSource, 6=VlanTag0
+ *
+ * MACVLAN modes correspond exactly to kernel ip-link(8) macvlan modes.
+ * UNTAGGED_SIMPLE_BRIDGE is the default (used when not otherwise configured).
+ */
+typedef enum
+_UNTAGGED_VLAN_TYPE
+{
+    UNTAGGED_SIMPLE_BRIDGE    = 0, /* Default: Linux bridge via brctl               */
+    UNTAGGED_MACVLAN_PRIVATE  = 1, /* macvlan mode private                          */
+    UNTAGGED_MACVLAN_VEPA     = 2, /* macvlan mode vepa                             */
+    UNTAGGED_MACVLAN_BRIDGE   = 3, /* macvlan mode bridge                           */
+    UNTAGGED_MACVLAN_PASSTHRU = 4, /* macvlan mode passthru                         */
+    UNTAGGED_MACVLAN_SOURCE   = 5, /* macvlan mode source                           */
+    UNTAGGED_VLAN_TAG_0       = 6, /* 802.1Q VLAN tag id 0                          */
+    TAGGED_VLAN               = 7  /* Tagged VLAN (VLANID > 0). DML path only.      */
+}
+untagged_vlan_type_t;
+
 typedef  struct
 _COSA_DML_MARKING
 {
@@ -113,6 +139,7 @@ _DML_ETHERNET
     CHAR                 MACAddress[18];
     LONG                 MACAddrOffSet;  // Changed to LONG to support negative offsets
     BOOLEAN              PriorityTagging;
+    untagged_vlan_type_t UnTaggedVlanType; // Untagged VLAN realisation type (bridge/macvlan/tag0)
     UINT                 NumberofMarkingEntries;
     PCOSA_DML_MARKING    pstDataModelMarking;
 }

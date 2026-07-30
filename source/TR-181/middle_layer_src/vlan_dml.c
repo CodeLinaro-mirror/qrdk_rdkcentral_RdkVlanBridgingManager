@@ -360,6 +360,11 @@ Vlan_GetParamUlongValue
         *puLong = p_Vlan->TPId;
         return TRUE;
     }
+    if (strcmp(ParamName, "UntaggedVlanType") == 0)
+    {
+        *puLong = p_Vlan->UnTaggedVlanType;
+        return TRUE;
+    }
     /* CcspTraceWarning(("Unsupported parameter '%s'\n", ParamName)); */
     return FALSE;
 }
