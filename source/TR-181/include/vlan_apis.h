@@ -50,6 +50,7 @@
 #define PSM_VLANMANAGER_LOWERLAYERS       "dmsb.vlanmanager.%d.lowerlayers"
 #define PSM_VLANMANAGER_VLANID            "dmsb.vlanmanager.%d.vlanid"
 #define PSM_VLANMANAGER_TPID              "dmsb.vlanmanager.%d.tpid"
+#define PSM_VLANMANAGER_UNTAGGEDVLANTYPE  "dmsb.vlanmanager.%d.untaggedvlantype"
 #define PSM_VLANMANAGER_BASEINTERFACE     "dmsb.vlanmanager.%d.baseinterface"
 #define PSM_VLANMANAGER_PATH              "dmsb.vlanmanager.%d.path"
 
@@ -88,6 +89,7 @@ _DML_VLAN
     CHAR                 BaseInterface[64];
     INT                  VLANId;
     UINT                 TPId;
+    INT                  UnTaggedVlanType; /* untagged_vlan_type_t: how an untagged (VLANID<=0) iface is created */
     CHAR                 Path[1024];
 }
 DML_VLAN,  *PDML_VLAN;
@@ -96,6 +98,7 @@ static inline void DML_VLAN_INIT(PDML_VLAN pVlan)
 {
     pVlan->Enable            = FALSE;
     pVlan->Status            = VLAN_IF_DOWN;
+    pVlan->UnTaggedVlanType  = 0; /* UNTAGGED_SIMPLE_BRIDGE – default */
 }
 
 /*************************************

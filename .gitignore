@@ -1,0 +1,28 @@
+# autoconf / automake generated
+aclocal.m4
+autom4te.cache/
+configure
+Makefile.in
+source/Makefile.in
+source/RdkVlanManager/Makefile.in
+source/TR-181/Makefile.in
+source/TR-181/middle_layer_src/Makefile.in
+cfg/compile
+cfg/config.guess
+cfg/config.h.in
+cfg/config.sub
+cfg/depcomp
+cfg/install-sh
+cfg/libtool.m4
+cfg/ltmain.sh
+cfg/ltoptions.m4
+cfg/ltsugar.m4
+cfg/ltversion.m4
+cfg/lt~obsolete.m4
+cfg/missing
+
+# dm_pack generated
+source/RdkVlanManager/dm_pack_datamodel.c
+
+# misc
+.lastlogin

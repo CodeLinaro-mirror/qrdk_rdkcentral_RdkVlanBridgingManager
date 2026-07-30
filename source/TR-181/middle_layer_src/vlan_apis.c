@@ -242,6 +242,13 @@ static ANSC_STATUS Vlan_SetEthLink(PDML_VLAN pEntry, BOOL enable, BOOL PriTag)
         return ANSC_STATUS_FAILURE;
     }
 
+    /* Sync VLAN type to EthLink. TAGGED_VLAN(7) is harmless — EthLink_Enable
+     * skips untagged creation when PriorityTagging=TRUE.
+     * TODO: UNTAGGED_VLAN_TAG_0 may need PriorityTagging=TRUE in future. */
+    ((PDML_ETHERNET)pNewEntry)->UnTaggedVlanType = (untagged_vlan_type_t)pEntry->UnTaggedVlanType;
+    CcspTraceInfo(("%s-%d: VLAN type=%d synced to EthLink for %s\n",
+                   __FUNCTION__, __LINE__, pEntry->UnTaggedVlanType, pEntry->Name));
+
     //Set PriorityTagging.
     if (enable == TRUE)
     {
@@ -367,7 +374,7 @@ void * Vlan_Disable(void *Arg)
     }
 
     //Delete Created Tagged Vlan Interface
-    if (pEntry->VLANId > 0)
+    if (pEntry->UnTaggedVlanType == TAGGED_VLAN)
     {
 #ifdef FEATURE_MAPT
         char wan_ifname[BUFLEN_64] = {0};
@@ -590,11 +597,43 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
 }
 #endif
 
+/* Poll interface status (up to 10 retries, 2 s apart) and notify WanManager. */
+static void Vlan_WaitForInterfaceUp(PDML_VLAN pEntry, const char *ifType)
+{
+    vlan_link_status_e status = VLAN_IF_DOWN;
+    INT iIterator = 0;
+    long uptime = 0;
+
+    while (iIterator < 10)
+    {
+        if (ANSC_STATUS_FAILURE == Vlan_GetTaggedVlanInterfaceStatus(pEntry->Name, &status))
+        {
+            CcspTraceError(("%s-%d: Failed to get %s Vlan Interface=%s Status\n",
+                           __FUNCTION__, __LINE__, ifType, pEntry->Name));
+        }
+
+        if (VLAN_IF_UP == status)
+        {
+            EthLink_SendVirtualIfaceVlanStatus(pEntry->Path, "Up");
+            CcspTraceInfo(("%s-%d: Successfully updated Vlan Status (%s) for Interface(%s)\n",
+                           __FUNCTION__, __LINE__, ifType, pEntry->Name));
+            break;
+        }
+
+        iIterator++;
+        sleep(2);
+        CcspTraceInfo(("%s-%d: %s Interface Status(%d), retry-count=%d\n",
+                       __FUNCTION__, __LINE__, ifType, status, iIterator));
+    }
+
+    get_uptime(&uptime);
+    pEntry->LastChange = uptime;
+}
+
 void * Vlan_Enable(void *Arg)
 {
     ANSC_STATUS returnStatus  = ANSC_STATUS_SUCCESS;
-    vlan_link_status_e status;
-    INT iIterator = 0;
+    vlan_link_status_e status = VLAN_IF_NOTPRESENT; /* safe default: skips deletion on ioctl failure */
 
     PDML_VLAN pEntry = (PDML_VLAN)Arg;
     if ( NULL == pEntry )
@@ -606,8 +645,8 @@ void * Vlan_Enable(void *Arg)
     pthread_detach(pthread_self());
 
     pthread_mutex_lock(&vlan_access_mutex);
-    //Create Vlan Tagged Interface
-    if(pEntry->VLANId > 0) {
+    //Create Vlan Tagged or UnTagged Interface, selected by UnTaggedVlanType
+    if (pEntry->UnTaggedVlanType == TAGGED_VLAN) {
         if (Vlan_SetEthLink(pEntry, TRUE, TRUE) == ANSC_STATUS_FAILURE)
         {
             CcspTraceError(("%s-%d: Failed to Enable EthLink\n", __FUNCTION__, __LINE__));
@@ -642,28 +681,7 @@ void * Vlan_Enable(void *Arg)
             CcspTraceError(("[%s][%d]Failed to create VLAN Tagged interface \n", __FUNCTION__, __LINE__));
         }
 
-        //Get status of VLAN link
-        while(iIterator < 10)
-        {
-            if (ANSC_STATUS_FAILURE == Vlan_GetTaggedVlanInterfaceStatus(pEntry->Name, &status))
-            {
-                CcspTraceError(("%s-%d: Failed to get Tagged Vlan Interface=%s Status \n", __FUNCTION__, __LINE__, pEntry->Name));
-            }
-
-            if (VLAN_IF_UP == status)
-            {
-                EthLink_SendVirtualIfaceVlanStatus(pEntry->Path, "Up");
-                CcspTraceInfo(("%s-%d: Successfully Updated Vlan Status to WanManager for Interface(%s) \n", __FUNCTION__, __LINE__, pEntry->Name));
-                break;
-            }
-
-            iIterator++;
-            sleep(2);
-            CcspTraceInfo(("%s-%d: Interface Status(%d), retry-count=%d \n", __FUNCTION__, __LINE__, status, iIterator));
-        }
-        long uptime = 0;
-        get_uptime(&uptime);
-        pEntry->LastChange  =  uptime;
+        Vlan_WaitForInterfaceUp(pEntry, "Tagged");
     }
     else
     {
@@ -672,6 +690,7 @@ void * Vlan_Enable(void *Arg)
         {
             CcspTraceError(("%s-%d: Failed to Enable EthLink\n", __FUNCTION__, __LINE__));
         }
+        Vlan_WaitForInterfaceUp(pEntry, "UnTagged");
     }
     pEntry->Status = VLAN_IF_UP;
 

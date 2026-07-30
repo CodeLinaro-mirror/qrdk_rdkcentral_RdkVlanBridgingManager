@@ -871,48 +871,94 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
  */
     EthLink_CreateBridgeInterface(TRUE);
 #else
-    // Create untagged interface using MACVLAN for truly untagged traffic
-    CcspTraceInfo(("%s-%d: Creating MACVLAN untagged interface %s on base interface %s with MAC offset %ld\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface, pEntry->MACAddrOffSet));
-    
-    // Check if interface already exists (as MACVLAN or bridge) and delete it
-    CcspTraceInfo(("%s-%d: Checking if interface %s already exists\n", __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)", 
-                    pEntry->Name, pEntry->Name, pEntry->Name);
-    
-    // Get MAC address with offset applied
-    if (ANSC_STATUS_SUCCESS != EthLink_GetMacAddr(pEntry))
-    {
-        CcspTraceError(("%s-%d: Failed to get MAC address, creating MACVLAN without custom MAC\n", __FUNCTION__, __LINE__));
-        // Create MACVLAN without setting custom MAC - kernel will assign one
-        v_secure_system("ip link add link %s name %s type macvlan mode private",
-                        pEntry->BaseInterface, pEntry->Name);
-    }
-    else
-    {
-        CcspTraceInfo(("%s-%d: Using MAC address: %s (offset: %ld)\n", 
-                       __FUNCTION__, __LINE__, pEntry->MACAddress, pEntry->MACAddrOffSet));
-        
-        // Create MACVLAN interface with custom MAC
-        v_secure_system("ip link add link %s name %s address %s type macvlan mode private",
-                        pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress);
-    }
-    
-    // Set the allmulticast and multicast on for MACVLAN interface
-    CcspTraceInfo(("%s-%d: Setting allmulticast amd multicast on for MACVLAN interface %s\n",
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link set %s allmulticast on", pEntry->Name);
-    v_secure_system("ip link set %s multicast on", pEntry->Name);
+    /*
+     * Consolidated untagged (VLANID <= 0) interface creation. The realisation
+     * method is selected by pEntry->UnTaggedVlanType, which is handed over from
+     * the VLAN entry (Vlan_SetEthLink) or loaded from the EthLink defaults.
+     */
+    CcspTraceInfo(("%s-%d: Creating untagged interface %s on base interface %s (type=%d, MAC offset=%ld)\n",
+                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface,
+                   pEntry->UnTaggedVlanType, pEntry->MACAddrOffSet));
 
-    // Set MTU to default 1500
-    CcspTraceInfo(("%s-%d: Setting MTU to 1500 for MACVLAN interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link set %s mtu 1500", pEntry->Name);
-    
-    v_secure_system("ip link set %s up", pEntry->Name);
-    
-    CcspTraceInfo(("%s-%d: Successfully created MACVLAN untagged interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
+    switch (pEntry->UnTaggedVlanType)
+    {
+        case UNTAGGED_VLAN_TAG_0:
+        {
+            /* 802.1Q VLAN with tag id 0 (priority/untagged frames). */
+            v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+                            pEntry->Name, pEntry->Name, pEntry->Name);
+            v_secure_system("ip link add link %s name %s type vlan id 0",
+                            pEntry->BaseInterface, pEntry->Name);
+            v_secure_system("ip link set %s up", pEntry->Name);
+            CcspTraceInfo(("%s-%d: Successfully created VLAN tag-0 untagged interface %s\n",
+                           __FUNCTION__, __LINE__, pEntry->Name));
+            break;
+        }
+        case UNTAGGED_MACVLAN_PRIVATE:
+        case UNTAGGED_MACVLAN_VEPA:
+        case UNTAGGED_MACVLAN_BRIDGE:
+        case UNTAGGED_MACVLAN_PASSTHRU:
+        case UNTAGGED_MACVLAN_SOURCE:
+        {
+            /* MACVLAN in the requested kernel mode (ip-link(8) macvlan). */
+            const char *macvlanMode;
+            switch (pEntry->UnTaggedVlanType)
+            {
+                case UNTAGGED_MACVLAN_VEPA:     macvlanMode = "vepa";     break;
+                case UNTAGGED_MACVLAN_BRIDGE:   macvlanMode = "bridge";   break;
+                case UNTAGGED_MACVLAN_PASSTHRU: macvlanMode = "passthru"; break;
+                case UNTAGGED_MACVLAN_SOURCE:   macvlanMode = "source";   break;
+                default:                        macvlanMode = "private";  break;
+            }
+
+            /* Delete any pre-existing interface with this name. */
+            v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+                            pEntry->Name, pEntry->Name, pEntry->Name);
+
+            /* Get MAC address with offset applied. */
+            if (ANSC_STATUS_SUCCESS != EthLink_GetMacAddr(pEntry))
+            {
+                CcspTraceError(("%s-%d: Failed to get MAC address, creating MACVLAN(%s) without custom MAC\n",
+                               __FUNCTION__, __LINE__, macvlanMode));
+                v_secure_system("ip link add link %s name %s type macvlan mode %s",
+                                pEntry->BaseInterface, pEntry->Name, macvlanMode);
+            }
+            else
+            {
+                CcspTraceInfo(("%s-%d: Using MAC address: %s (offset: %ld) mode %s\n",
+                               __FUNCTION__, __LINE__, pEntry->MACAddress, pEntry->MACAddrOffSet, macvlanMode));
+                v_secure_system("ip link add link %s name %s address %s type macvlan mode %s",
+                                pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress, macvlanMode);
+            }
+
+            v_secure_system("ip link set %s allmulticast on", pEntry->Name);
+            v_secure_system("ip link set %s multicast on", pEntry->Name);
+            v_secure_system("ip link set %s mtu 1500", pEntry->Name);
+            v_secure_system("ip link set %s up", pEntry->Name);
+
+            CcspTraceInfo(("%s-%d: Successfully created MACVLAN(%s) untagged interface %s\n",
+                           __FUNCTION__, __LINE__, macvlanMode, pEntry->Name));
+            break;
+        }
+        case UNTAGGED_SIMPLE_BRIDGE:
+        default:
+        {
+            /* Default: Linux bridge via brctl. The base interface is enslaved
+             * to a bridge that carries untagged traffic. */
+            v_secure_system("ip link show %s > /dev/null 2>&1 || brctl addbr %s",
+                            pEntry->Name, pEntry->Name);
+            if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
+                (pEntry->BaseInterface[0] != '\0'))
+            {
+                v_secure_system("brctl addif %s %s 2>/dev/null",
+                                pEntry->Name, pEntry->BaseInterface);
+            }
+            v_secure_system("ifconfig %s up", pEntry->Name);
+            CcspTraceInfo(("%s-%d: Successfully created bridge untagged interface %s\n",
+                           __FUNCTION__, __LINE__, pEntry->Name));
+            break;
+        }
+    }
 
 #endif
     //Free VlanCfg skb_config memory
@@ -936,12 +982,35 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
         return ANSC_STATUS_FAILURE;
     }
 
-    CcspTraceInfo(("%s-%d: Deleting untagged VLAN interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    
-    v_secure_system("ip link set %s down", pEntry->Name);
-    v_secure_system("ip link delete %s", pEntry->Name);
-    
+    CcspTraceInfo(("%s-%d: Deleting untagged VLAN interface %s (type=%d)\n",
+                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->UnTaggedVlanType));
+
+    switch (pEntry->UnTaggedVlanType)
+    {
+        case UNTAGGED_SIMPLE_BRIDGE:
+        default:
+            /* Simple Linux bridge teardown via brctl. */
+            if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
+                (pEntry->BaseInterface[0] != '\0'))
+            {
+                v_secure_system("brctl delif %s %s", pEntry->Name, pEntry->BaseInterface);
+            }
+            v_secure_system("ifconfig %s down", pEntry->Name);
+            v_secure_system("brctl delbr %s", pEntry->Name);
+            break;
+
+        case UNTAGGED_VLAN_TAG_0:
+        case UNTAGGED_MACVLAN_PRIVATE:
+        case UNTAGGED_MACVLAN_VEPA:
+        case UNTAGGED_MACVLAN_BRIDGE:
+        case UNTAGGED_MACVLAN_PASSTHRU:
+        case UNTAGGED_MACVLAN_SOURCE:
+            /* macvlan and vlan tag-0 devices are removed with ip link. */
+            v_secure_system("ip link set %s down", pEntry->Name);
+            v_secure_system("ip link delete %s", pEntry->Name);
+            break;
+    }
+
     CcspTraceInfo(("%s-%d: Successfully deleted untagged VLAN interface %s\n", 
                    __FUNCTION__, __LINE__, pEntry->Name));
 
