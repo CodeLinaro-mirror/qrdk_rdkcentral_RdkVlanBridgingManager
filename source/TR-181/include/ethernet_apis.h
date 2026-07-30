@@ -137,7 +137,7 @@ _DML_ETHERNET
     CHAR                 LowerLayers[1024];
     CHAR                 Path[1024];
     CHAR                 MACAddress[18];
-    LONG                 MACAddrOffSet;  // Changed to LONG to support negative offsets
+    INT                  MACAddrOffSet;  /* Signed offset added to PAM base MAC. INT matches GetParamIntValue handler. */
     BOOLEAN              PriorityTagging;
     untagged_vlan_type_t UnTaggedVlanType; // Untagged VLAN realisation type (bridge/macvlan/tag0)
     UINT                 NumberofMarkingEntries;

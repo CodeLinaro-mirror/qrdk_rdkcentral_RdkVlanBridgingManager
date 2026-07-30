@@ -933,7 +933,7 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
      * method is selected by pEntry->UnTaggedVlanType, which is handed over from
      * the VLAN entry (Vlan_SetEthLink) or loaded from the EthLink defaults.
      */
-    CcspTraceInfo(("%s-%d: Creating untagged interface %s on base interface %s (type=%d, MAC offset=%ld)\n",
+    CcspTraceInfo(("%s-%d: Creating untagged interface %s on base interface %s (type=%d, MAC offset=%d)\n",
                    __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface,
                    pEntry->UnTaggedVlanType, pEntry->MACAddrOffSet));
 
@@ -960,27 +960,12 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
             EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
                      pEntry->Name, pEntry->Name, pEntry->Name);
 
-            /* Get MAC address with offset applied. */
-            int rc;
-            if (ANSC_STATUS_SUCCESS != EthLink_GetMacAddr(pEntry))
-            {
-                CcspTraceError(("%s-%d: Failed to get MAC, creating MACVLAN(%s) without custom MAC\n",
-                               __FUNCTION__, __LINE__, macvlanMode));
-                rc = EXEC_CMD("ip link add link %s name %s type macvlan mode %s",
-                              pEntry->BaseInterface, pEntry->Name, macvlanMode);
-            }
-            else
-            {
-                CcspTraceInfo(("%s-%d: MAC %s (offset %ld) mode %s\n",
-                               __FUNCTION__, __LINE__, pEntry->MACAddress, pEntry->MACAddrOffSet, macvlanMode));
-                rc = EXEC_CMD("ip link add link %s name %s address %s type macvlan mode %s",
-                              pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress, macvlanMode);
-            }
-            (void)rc;
+            /* Create without custom MAC address — MAC is applied uniformly below. */
+            EXEC_CMD("ip link add link %s name %s type macvlan mode %s",
+                     pEntry->BaseInterface, pEntry->Name, macvlanMode);
             EXEC_CMD("ip link set %s allmulticast on", pEntry->Name);
             EXEC_CMD("ip link set %s multicast on", pEntry->Name);
             EXEC_CMD("ip link set %s mtu 1500", pEntry->Name);
-            EXEC_CMD("ip link set %s up", pEntry->Name);
             CcspTraceInfo(("%s-%d: Created MACVLAN(%s) interface %s\n",
                            __FUNCTION__, __LINE__, macvlanMode, pEntry->Name));
             break;
@@ -997,12 +982,31 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
             {
                 EXEC_CMD("brctl addif %s %s", pEntry->Name, pEntry->BaseInterface);
             }
-            EXEC_CMD("ifconfig %s up", pEntry->Name);
             CcspTraceInfo(("%s-%d: Created bridge interface %s\n",
                            __FUNCTION__, __LINE__, pEntry->Name));
             break;
         }
     }
+
+    /* Apply MAC address for all interface types.
+     * EthLink_GetMacAddr computes PAM base + MACAddrOffSet and stores the
+     * result in pEntry->MACAddress.  Set it before bringing the interface up
+     * so there is no window with an incorrect MAC. */
+    if (ANSC_STATUS_SUCCESS == EthLink_GetMacAddr(pEntry))
+    {
+        EXEC_CMD("ip link set dev %s address %s", pEntry->Name, pEntry->MACAddress);
+        CcspTraceInfo(("%s-%d: MAC %s (offset %d) applied to %s\n",
+                       __FUNCTION__, __LINE__,
+                       pEntry->MACAddress, pEntry->MACAddrOffSet, pEntry->Name));
+    }
+    else
+    {
+        CcspTraceInfo(("%s-%d: EthLink_GetMacAddr failed, using default MAC for %s\n",
+                       __FUNCTION__, __LINE__, pEntry->Name));
+    }
+
+    /* Bring up — common for all interface types. */
+    EXEC_CMD("ip link set %s up", pEntry->Name);
 
 #endif
     //Free VlanCfg skb_config memory
