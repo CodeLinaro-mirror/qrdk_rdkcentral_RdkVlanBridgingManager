@@ -620,11 +620,16 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
     VlanCfg.VLANId = pEntry->VLANId;
     if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_SUCCESS)
     {
+        /* egress-qos-map reads skb->priority; CLASSIFY --set-class in utopia firewall sets priority=SKBPort */
         for (i = 0; i < (INT)VlanCfg.skbMarkingNumOfEntries; i++)
         {
+            CcspTraceInfo(("%s-%d: egress-qos-map %s: SKBPort=%u -> pbit=%d\n",
+                           __FUNCTION__, __LINE__, pEntry->Name,
+                           VlanCfg.skb_config[i].skbPort,
+                           VlanCfg.skb_config[i].skbEthPriorityMark));
             v_secure_system("ip link set %s type vlan egress-qos-map %u:%d",
                             pEntry->Name,
-                            VlanCfg.skb_config[i].skbMark,
+                            VlanCfg.skb_config[i].skbPort,
                             VlanCfg.skb_config[i].skbEthPriorityMark);
         }
         if (VlanCfg.skb_config != NULL)
