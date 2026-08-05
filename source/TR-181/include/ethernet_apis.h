@@ -97,18 +97,18 @@ typedef enum {
  *   4=MacvlanPassthru, 5=MacvlanSource, 6=VlanTag0, 7=TaggedVlan
  *
  * MACVLAN modes correspond exactly to kernel ip-link(8) macvlan modes.
- * UNTAGGED_SIMPLE_BRIDGE is the default (used when not otherwise configured).
+ * UNTAGGED_MACVLAN_PRIVATE is the default (used when not otherwise configured).
  */
 typedef enum
 _UNTAGGED_VLAN_TYPE
 {
-    UNTAGGED_SIMPLE_BRIDGE    = 0, /* Default: Linux bridge via brctl               */
-    UNTAGGED_MACVLAN_PRIVATE  = 1, /* macvlan mode private                          */
-    UNTAGGED_MACVLAN_VEPA     = 2, /* macvlan mode vepa                             */
-    UNTAGGED_MACVLAN_BRIDGE   = 3, /* macvlan mode bridge                           */
-    UNTAGGED_MACVLAN_PASSTHRU = 4, /* macvlan mode passthru                         */
-    UNTAGGED_MACVLAN_SOURCE   = 5, /* macvlan mode source                           */
-    UNTAGGED_VLAN_TAG_0       = 6, /* 802.1Q VLAN tag id 0                          */
+    UNTAGGED_MACVLAN_PRIVATE  = 0, /* Default: macvlan mode private                 */
+    UNTAGGED_MACVLAN_VEPA     = 1, /* macvlan mode vepa                             */
+    UNTAGGED_MACVLAN_BRIDGE   = 2, /* macvlan mode bridge                           */
+    UNTAGGED_MACVLAN_PASSTHRU = 3, /* macvlan mode passthru                         */
+    UNTAGGED_MACVLAN_SOURCE   = 4, /* macvlan mode source                           */
+    UNTAGGED_VLAN_TAG_0       = 5, /* 802.1Q VLAN tag id 0                          */
+    UNTAGGED_SIMPLE_BRIDGE    = 6, /* Linux bridge via brctl                        */
     TAGGED_VLAN               = 7  /* Tagged VLAN (VLANID > 0). DML path only.      */
 }
 untagged_vlan_type_t;

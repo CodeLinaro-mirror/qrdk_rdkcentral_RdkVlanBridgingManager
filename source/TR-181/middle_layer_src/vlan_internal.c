@@ -282,8 +282,8 @@ static ANSC_STATUS VlanTerminationInitialize( ANSC_HANDLE hThisObject)
             }
 
             /* Set UntaggedVlanType: tagged VLANs use TAGGED_VLAN (7); untagged VLANs
-             * default to UNTAGGED_SIMPLE_BRIDGE (0) for the HUB4 regional flow. */
-            pVlan[nIndex].UnTaggedVlanType = (pVlan[nIndex].VLANId > 0) ? 7 /* TAGGED_VLAN */ : 0 /* UNTAGGED_SIMPLE_BRIDGE */;
+             * default to UNTAGGED_MACVLAN_PRIVATE for the HUB4 regional flow. */
+            pVlan[nIndex].UnTaggedVlanType = (pVlan[nIndex].VLANId > 0) ? TAGGED_VLAN : UNTAGGED_MACVLAN_PRIVATE;
 
             /*TODO:
              *Need to be Removed Path From PSM Once RBUS Support Available in VlanManager and WanManager.
@@ -385,10 +385,10 @@ static ANSC_STATUS VlanTerminationInitialize( ANSC_HANDLE hThisObject)
         }
 
         /* Set UntaggedVlanType: tagged VLANs always use TAGGED_VLAN (7).
-         * For untagged VLANs load the type from PSM; falls back to 0 (UNTAGGED_SIMPLE_BRIDGE). */
+         * For untagged VLANs load the type from PSM; falls back to UNTAGGED_MACVLAN_PRIVATE. */
         if (pVlan[nIndex].VLANId > 0)
         {
-            pVlan[nIndex].UnTaggedVlanType = 7; /* TAGGED_VLAN */
+            pVlan[nIndex].UnTaggedVlanType = TAGGED_VLAN;
         }
         else
         {

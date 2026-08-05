@@ -98,7 +98,7 @@ static inline void DML_VLAN_INIT(PDML_VLAN pVlan)
 {
     pVlan->Enable            = FALSE;
     pVlan->Status            = VLAN_IF_DOWN;
-    pVlan->UnTaggedVlanType  = 0; /* UNTAGGED_SIMPLE_BRIDGE – default */
+    pVlan->UnTaggedVlanType  = UNTAGGED_MACVLAN_PRIVATE; /* default */
 }
 
 /*************************************
