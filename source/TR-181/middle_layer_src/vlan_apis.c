@@ -367,14 +367,10 @@ void * Vlan_Disable(void *Arg)
     pthread_detach(pthread_self());
 
     pthread_mutex_lock(&vlan_access_mutex);
-
-    if (pEntry->VLANId != -1)
+    //Set EthLink to False. it will take care UnTagged Created Vlan Interface
+    if (Vlan_SetEthLink(pEntry, FALSE, FALSE) == ANSC_STATUS_FAILURE)
     {
-        //Set EthLink to False. it will take care UnTagged Created Vlan Interface
-        if (Vlan_SetEthLink(pEntry, FALSE, FALSE) == ANSC_STATUS_FAILURE)
-        {
-            CcspTraceError(("%s-%d: Failed to Disable EthLink\n", __FUNCTION__, __LINE__));
-        }
+        CcspTraceError(("%s-%d: Failed to Disable EthLink\n", __FUNCTION__, __LINE__));
     }
 
     //Delete Created Tagged Vlan Interface
@@ -412,19 +408,6 @@ void * Vlan_Disable(void *Arg)
 #else
         Vlan_DeleteInterface(pEntry);
 #endif
-    }
-    else if (pEntry->VLANId == -1)
-    {
-        /* If the VLANID = -1, the VLAN is a bridge, delete the bridge and delete the interface from the bridge */
-        if (strcmp(pEntry->BaseInterface, pEntry->Name) != 0)
-        {
-            if (pEntry->BaseInterface[0] != '\0')
-            {
-                v_secure_system("brctl delif %s %s", pEntry->Name, pEntry->BaseInterface);
-            }
-            v_secure_system("ifconfig %s down", pEntry->Name);
-            v_secure_system("brctl delbr %s", pEntry->Name);
-        }
     }
 
     pEntry->Status = VLAN_IF_DOWN;
@@ -731,40 +714,6 @@ void * Vlan_Enable(void *Arg)
         }
 
         Vlan_WaitForInterfaceUp(pEntry, "Tagged");
-    }
-    else if (pEntry->VLANId == -1)
-    {
-        /* If the VLANID = -1, the VLAN is a bridge, create the bridge and add the interface to the bridge */
-        if (strcmp(pEntry->BaseInterface, pEntry->Name) != 0)
-        {
-            v_secure_system("ip link show %s > /dev/null 2>&1 || brctl addbr %s", pEntry->Name, pEntry->Name);
-            v_secure_system("brctl addif %s %s 2>/dev/null", pEntry->Name, pEntry->BaseInterface);
-            v_secure_system("ifconfig %s up", pEntry->Name);
-        }
-
-        //Get status of VLAN link
-        status = VLAN_IF_DOWN;
-        while(iIterator < 10)
-        {
-            if (ANSC_STATUS_FAILURE == Vlan_GetTaggedVlanInterfaceStatus(pEntry->Name, &status))
-            {
-                CcspTraceError(("%s-%d: Failed to get Tagged Vlan Interface=%s Status \n", __FUNCTION__, __LINE__, pEntry->Name));
-            }
-
-            if (VLAN_IF_UP == status)
-            {
-                EthLink_SendVirtualIfaceVlanStatus(pEntry->Path, "Up");
-                CcspTraceInfo(("%s-%d: Successfully Updated Vlan Status to WanManager for Interface(%s) \n", __FUNCTION__, __LINE__, pEntry->Name));
-                break;
-            }
-
-            iIterator++;
-            sleep(2);
-            CcspTraceInfo(("%s-%d: Interface Status(%d), retry-count=%d \n", __FUNCTION__, __LINE__, status, iIterator));
-        }
-        long uptime = 0;
-        get_uptime(&uptime);
-        pEntry->LastChange  =  uptime;
     }
     else
     {
