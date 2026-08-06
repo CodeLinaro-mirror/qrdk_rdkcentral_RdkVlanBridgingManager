@@ -556,10 +556,17 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
     VlanCfg.VLANId = pEntry->VLANId;
     VlanCfg.TPId   = pEntry->TPId;
 
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_FAILURE)
     {
-        CcspTraceError(("%s Failed to Get Marking, so Can't Create Vlan Interface(%s) \n", __FUNCTION__, pEntry->Alias));
-        return ANSC_STATUS_FAILURE;
+        INT iEthLinkInstance = -1, EthLinkInstance = -1;
+        if (strlen(pEntry->LowerLayers) > 0)
+            sscanf(pEntry->LowerLayers, "Device.X_RDK_Ethernet.Link.%d", &iEthLinkInstance);
+        PDML_ETHERNET pEthLink = (iEthLinkInstance > 0) ?
+            (PDML_ETHERNET)EthLink_GetEntry(NULL, (iEthLinkInstance - 1), (PULONG)&EthLinkInstance) : NULL;
+        if (pEthLink == NULL || EthLink_GetMarking(pEthLink, &VlanCfg) == ANSC_STATUS_FAILURE)
+        {
+            CcspTraceError(("%s Failed to Get Marking, so Can't Create Vlan Interface(%s) \n", __FUNCTION__, pEntry->Alias));
+            return ANSC_STATUS_FAILURE;
+        }
     }
 
     vlan_eth_hal_createInterface(&VlanCfg);
@@ -601,7 +608,16 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
      *       skbPort would need tc-filter rules and is not set here. */
     strncpy(VlanCfg.L3Interface, pEntry->Name, sizeof(VlanCfg.L3Interface) - 1);
     VlanCfg.VLANId = pEntry->VLANId;
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_SUCCESS)
+    {
+        INT iEthLinkInstance = -1, EthLinkInstance = -1;
+        if (strlen(pEntry->LowerLayers) > 0)
+            sscanf(pEntry->LowerLayers, "Device.X_RDK_Ethernet.Link.%d", &iEthLinkInstance);
+        PDML_ETHERNET pEthLink = (iEthLinkInstance > 0) ?
+            (PDML_ETHERNET)EthLink_GetEntry(NULL, (iEthLinkInstance - 1), (PULONG)&EthLinkInstance) : NULL;
+        if (pEthLink != NULL)
+            EthLink_GetMarking(pEthLink, &VlanCfg);
+    }
+    if (VlanCfg.skbMarkingNumOfEntries > 0)
     {
         /* egress-qos-map reads skb->priority; CLASSIFY --set-class in utopia firewall sets priority=SKBPort */
         for (i = 0; i < (INT)VlanCfg.skbMarkingNumOfEntries; i++)

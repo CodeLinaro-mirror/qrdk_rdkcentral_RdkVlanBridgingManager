@@ -259,5 +259,5 @@ void* EthLink_RefreshHandleThread(void *Arg);
 ANSC_STATUS EthLink_GetMacAddr( PDML_ETHERNET pEntry );
 ANSC_STATUS EthLink_SendVirtualIfaceVlanStatus(char *path, char *vlanStatus);
 ANSC_STATUS DmlEthGetParamValues(char *pComponent, char *pBus, char *pParamName, char *pReturnVal);
-ANSC_STATUS EthLink_GetMarking(char *ifname, vlan_configuration_t *pVlanCfg);
+ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg);
 #endif

@@ -822,75 +822,56 @@ static ANSC_STATUS EthLink_AddMarking(PDML_ETHERNET pEntry)
     return ANSC_STATUS_SUCCESS;
 }
 
-ANSC_STATUS EthLink_GetMarking(char *ifname, vlan_configuration_t *pVlanCfg)
+ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg)
 {
     INT iLoopCount = 0;
-    BOOL Found = FALSE;
     ANSC_STATUS returnStatus = ANSC_STATUS_FAILURE;
 
-    if ((ifname == NULL) || (pVlanCfg == NULL))
+    if ((pEntry == NULL) || (pVlanCfg == NULL))
     {
         CcspTraceError(("%s Invalid Memory\n", __FUNCTION__));
         return ANSC_STATUS_FAILURE;
     }
 
-    PDATAMODEL_ETHERNET    pMyObject    = (PDATAMODEL_ETHERNET)g_pBEManager->hEth;
-    PDML_ETHERNET          p_EthLink    = NULL;
-
-    if (pMyObject->ulEthlinkInstanceNumber > 0)
+    if (pEntry != NULL)
     {
-        for(iLoopCount = 0; iLoopCount < pMyObject->ulEthlinkInstanceNumber; iLoopCount++)
+        //Vlan Marking Info
+        CcspTraceInfo(("%s-%d: NumberofMarkingEntries=%d \n", __FUNCTION__, __LINE__, pEntry->NumberofMarkingEntries));
+        if (pEntry->NumberofMarkingEntries > 0)
         {
-            p_EthLink = (PDML_ETHERNET)&(pMyObject->EthLink[iLoopCount]);
-            if (p_EthLink != NULL)
-            {
-                if (strncmp(p_EthLink->Alias, ifname, strlen(ifname)) == 0)
-                {
-                    Found = TRUE;
-                    break;
-                }
-            }
-        }
-        if (Found && (p_EthLink != NULL))
-        {
-            //Vlan Marking Info
-            CcspTraceInfo(("%s-%d: NumberofMarkingEntries=%d \n", __FUNCTION__, __LINE__, p_EthLink->NumberofMarkingEntries));
-            if (p_EthLink->NumberofMarkingEntries > 0)
-            {
-                //allocate memory to vlan_skb_config_t, free it once used.
-                pVlanCfg->skbMarkingNumOfEntries = p_EthLink->NumberofMarkingEntries;
-                pVlanCfg->skb_config = (vlan_skb_config_t*)malloc( p_EthLink->NumberofMarkingEntries * sizeof(vlan_skb_config_t) );
+            //allocate memory to vlan_skb_config_t, free it once used.
+            pVlanCfg->skbMarkingNumOfEntries = pEntry->NumberofMarkingEntries;
+            pVlanCfg->skb_config = (vlan_skb_config_t*)malloc( pEntry->NumberofMarkingEntries * sizeof(vlan_skb_config_t) );
 
-                if( NULL == pVlanCfg->skb_config )
+            if( NULL == pVlanCfg->skb_config )
+            {
+                CcspTraceError(("%s - %d : Invalid SKB priority\n", __FUNCTION__, __LINE__));
+                return ANSC_STATUS_FAILURE;
+            }
+
+            for(int i = 0; i < pEntry->NumberofMarkingEntries; i++)
+            {
+                PCOSA_DML_MARKING pDataModelMarking = (PCOSA_DML_MARKING)&(pEntry->pstDataModelMarking[i]);
+                if ((pDataModelMarking != NULL) && (pVlanCfg->skb_config != NULL))
                 {
-                    CcspTraceError(("%s - %d : Invalid SKB priority\n", __FUNCTION__, __LINE__));
+                    strncpy(pVlanCfg->skb_config[i].alias, pDataModelMarking->Alias, sizeof(pVlanCfg->skb_config[i].alias) - 1);
+                    pVlanCfg->skb_config[i].skbPort = pDataModelMarking->SKBPort;
+                    pVlanCfg->skb_config[i].skbMark = pDataModelMarking->SKBMark;
+                    pVlanCfg->skb_config[i].skbEthPriorityMark = pDataModelMarking->EthernetPriorityMark;
+                    CcspTraceInfo(("%s-%d: Ins[%d] Alias[%s] SKBPort[%u] SKBMark[%u] EthernetPriorityMark[%d]\n", __FUNCTION__,
+                                __LINE__, (i + 1), pVlanCfg->skb_config[i].alias, pVlanCfg->skb_config[i].skbPort,
+                                pVlanCfg->skb_config[i].skbMark, pVlanCfg->skb_config[i].skbEthPriorityMark ));
+                }
+                else
+                {
+                    CcspTraceError(("%s-%d: pDataModelMarking Or pVlanCfg->skb_config are Null \n", __FUNCTION__, __LINE__));
+                    free(pVlanCfg->skb_config);
+                    pVlanCfg->skb_config = NULL;
                     return ANSC_STATUS_FAILURE;
                 }
-
-                for(int i = 0; i < p_EthLink->NumberofMarkingEntries; i++)
-                {
-                    PCOSA_DML_MARKING pDataModelMarking = (PCOSA_DML_MARKING)&(p_EthLink->pstDataModelMarking[i]);
-                    if ((pDataModelMarking != NULL) && (pVlanCfg->skb_config != NULL))
-                    {
-                        strncpy(pVlanCfg->skb_config[i].alias, pDataModelMarking->Alias, sizeof(pVlanCfg->skb_config[i].alias) - 1);
-                        pVlanCfg->skb_config[i].skbPort = pDataModelMarking->SKBPort;
-                        pVlanCfg->skb_config[i].skbMark = pDataModelMarking->SKBMark;
-                        pVlanCfg->skb_config[i].skbEthPriorityMark = pDataModelMarking->EthernetPriorityMark;
-                        CcspTraceInfo(("%s-%d: Ins[%d] Alias[%s] SKBPort[%u] SKBMark[%u] EthernetPriorityMark[%d]\n", __FUNCTION__,
-                                    __LINE__, (i + 1), pVlanCfg->skb_config[i].alias, pVlanCfg->skb_config[i].skbPort,
-                                    pVlanCfg->skb_config[i].skbMark, pVlanCfg->skb_config[i].skbEthPriorityMark ));
-                    }
-                    else
-                    {
-                        CcspTraceError(("%s-%d: pDataModelMarking Or pVlanCfg->skb_config are Null \n", __FUNCTION__, __LINE__));
-                        free(pVlanCfg->skb_config);
-                        pVlanCfg->skb_config = NULL;
-                        return ANSC_STATUS_FAILURE;
-                    }
-                }
             }
-            returnStatus = ANSC_STATUS_SUCCESS;
         }
+        returnStatus = ANSC_STATUS_SUCCESS;
     }
 
     return returnStatus;
@@ -915,7 +896,7 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
     VlanCfg.VLANId = DEFAULT_VLAN_ID;
     VlanCfg.TPId   = 0;
 
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_FAILURE)
+    if (EthLink_GetMarking(pEntry, &VlanCfg) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s Failed to Get Marking, so Can't Create Vlan Interface(%s) \n", __FUNCTION__, pEntry->Alias));
         return ANSC_STATUS_FAILURE;
@@ -1126,7 +1107,7 @@ static ANSC_STATUS EthLink_TriggerVlanRefresh(PDML_ETHERNET pEntry )
     /* TODO: Retry add making if DM gert fails. 
      * Currently we continue to create VLAN link, if Marking get fails to avoid WAN failure.
      */
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_FAILURE)
+    if (EthLink_GetMarking(pEntry, &VlanCfg) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s Failed to Get Marking, Creating Vlan Interface(%s) without marking \n", __FUNCTION__, pEntry->Alias));
     }
