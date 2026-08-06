@@ -824,7 +824,6 @@ static ANSC_STATUS EthLink_AddMarking(PDML_ETHERNET pEntry)
 
 ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg)
 {
-    INT iLoopCount = 0;
     ANSC_STATUS returnStatus = ANSC_STATUS_FAILURE;
 
     if ((pEntry == NULL) || (pVlanCfg == NULL))
