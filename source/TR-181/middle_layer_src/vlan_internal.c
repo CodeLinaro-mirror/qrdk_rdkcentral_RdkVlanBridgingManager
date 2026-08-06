@@ -35,6 +35,7 @@
 #include "vlan_mgr_apis.h"
 #include "vlan_apis.h"
 #include "vlan_internal.h"
+#include "ethernet_apis.h"
 #include "plugin_main_apis.h"
 #include "poam_irepfo_interface.h"
 #include "sys_definitions.h"
