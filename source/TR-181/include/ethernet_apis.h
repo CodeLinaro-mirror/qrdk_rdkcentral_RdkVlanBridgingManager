@@ -34,7 +34,7 @@
 
 #ifndef  _ETHERNET_APIS_H
 #define  _ETHERNET_APIS_H
-
+#include <stdarg.h>
 #include "vlan_mgr_apis.h"
 #include "ssp_global.h"
 #include "vlan_eth_hal.h"
@@ -260,4 +260,8 @@ ANSC_STATUS EthLink_GetMacAddr( PDML_ETHERNET pEntry );
 ANSC_STATUS EthLink_SendVirtualIfaceVlanStatus(char *path, char *vlanStatus);
 ANSC_STATUS DmlEthGetParamValues(char *pComponent, char *pBus, char *pParamName, char *pReturnVal);
 ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg);
+
+int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...);
+#define EXEC_CMD(fmt, ...) EthLink_RunCmd(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
+
 #endif

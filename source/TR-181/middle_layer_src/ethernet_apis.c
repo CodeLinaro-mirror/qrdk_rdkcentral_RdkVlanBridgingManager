@@ -98,11 +98,7 @@ extern ANSC_HANDLE                        g_MessageBusHandle;
         int                               sysevent_fd = -1;
         token_t                           sysevent_token;
 
-/*
- * EthLink_RunCmd - run a shell command, log it and all output (stdout+stderr),
- * and return the exit code.  Use EXEC_CMD() to auto-inject __FUNCTION__/__LINE__.
- */
-static int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...)
+int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...)
 {
     char    cmd[512]   = {0};
     char    redir[544] = {0};
@@ -151,7 +147,6 @@ static int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...)
         CcspTraceError(("%s-%d: killed by signal %d: %s\n", caller, line, WTERMSIG(status), cmd));
     return -1;
 }
-#define EXEC_CMD(fmt, ...) EthLink_RunCmd(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
 
 static ANSC_STATUS DmlEthSetParamValues(const char *pComponent, char *pBus, char *pParamName, char *pParamVal, enum dataType_e type, unsigned int bCommitFlag);
 static ANSC_STATUS DmlEthGetParamNames(char *pComponent, char *pBus, char *pParamName, char a2cReturnVal[][256], int *pReturnSize);

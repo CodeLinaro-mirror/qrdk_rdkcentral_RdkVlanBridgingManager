@@ -515,6 +515,31 @@ static ANSC_STATUS Vlan_SetMacAddr( PDML_VLAN pEntry )
 }
 
 #endif
+
+#ifdef TC_QOS_CLASSIFY
+/* Attach clsact egress filters on the VLAN interface.
+ * fw filters bridge skb->mark -> skb->priority for egress-qos-map, replacing
+ * iptables CLASSIFY rules.  Network control protocols get DATA priority (1). */
+static void Vlan_SetTcClassify(const char *iface)
+{
+    EXEC_CMD("tc qdisc add dev %s clsact", iface);
+    /* SKBPort-encoded mark -> egress-qos-map priority key */
+    EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x100000 fw mask 0x0ff00000 action skbedit priority 1", iface);
+    EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x200000 fw mask 0x0ff00000 action skbedit priority 2", iface);
+    EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x300000 fw mask 0x0ff00000 action skbedit priority 3", iface);
+    /* ARP: EtherType 0x0806 */
+    EXEC_CMD("tc filter add dev %s egress protocol arp prio 2 u32 match u32 0 0 action skbedit priority 1", iface);
+    /* ICMPv6: IPv6 Next Header field (byte 6) = 0x3a (58) */
+    EXEC_CMD("tc filter add dev %s egress protocol ipv6 prio 2 u32 match u8 0x3a 0xff at 6 action skbedit priority 1", iface);
+    /* DHCPv4: proto=UDP (0x11), dport=67 (BOOTP server) */
+    EXEC_CMD("tc filter add dev %s egress protocol ip prio 2 u32 match ip protocol 17 0xff match ip dport 67 0xffff action skbedit priority 1", iface);
+    /* DHCPv4: proto=UDP (0x11), dport=68 (BOOTP client) */
+    EXEC_CMD("tc filter add dev %s egress protocol ip prio 2 u32 match ip protocol 17 0xff match ip dport 68 0xffff action skbedit priority 1", iface);
+    /* DHCPv6: IPv6 nexthdr=0x11 (UDP) at byte 6; dport 546-547 via 0x0222/0xfffe at byte 42 (hdr40+udp_dport2) */
+    EXEC_CMD("tc filter add dev %s egress protocol ipv6 prio 2 u32 match u8 0x11 0xff at 6 match u16 0x0222 0xfffe at 42 action skbedit priority 1", iface);
+}
+#endif
+
 /**********************************************************************
 
     caller:     self
@@ -593,8 +618,8 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
         return ANSC_STATUS_FAILURE;
     }
 
-    v_secure_system("ip link add link %s name %s type vlan id %u", pEntry->Alias, pEntry->Name, pEntry->VLANId);
-    v_secure_system("ip link set %s up", pEntry->Name);
+    EXEC_CMD("ip link add link %s name %s type vlan id %u", pEntry->Alias, pEntry->Name, pEntry->VLANId);
+    EXEC_CMD("ip link set %s up", pEntry->Name);
 
     if (Vlan_SetMacAddr(pEntry) == ANSC_STATUS_FAILURE)
     {
@@ -626,16 +651,20 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
                            __FUNCTION__, __LINE__, pEntry->Name,
                            VlanCfg.skb_config[i].skbPort,
                            VlanCfg.skb_config[i].skbEthPriorityMark));
-            v_secure_system("ip link set %s type vlan egress-qos-map %u:%d",
-                            pEntry->Name,
-                            VlanCfg.skb_config[i].skbPort,
-                            VlanCfg.skb_config[i].skbEthPriorityMark);
+            EXEC_CMD("ip link set %s type vlan egress-qos-map %u:%d",
+                    pEntry->Name,
+                    VlanCfg.skb_config[i].skbPort,
+                    VlanCfg.skb_config[i].skbEthPriorityMark);
         }
         if (VlanCfg.skb_config != NULL)
         {
             free(VlanCfg.skb_config);
         }
     }
+
+#ifdef TC_QOS_CLASSIFY
+    Vlan_SetTcClassify(pEntry->Name);
+#endif
 
     return returnStatus;
 }
