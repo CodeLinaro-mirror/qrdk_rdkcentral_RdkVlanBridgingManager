@@ -524,20 +524,12 @@ static ANSC_STATUS Vlan_SetMacAddr( PDML_VLAN pEntry )
 static void Vlan_SetTcClassify(const char *iface)
 {
     EXEC_CMD("tc qdisc add dev %s clsact", iface);
-    /* SKBPort-encoded mark -> egress-qos-map priority key; mask via HANDLE/MASK fw syntax */
+    /* SKBPort-encoded mark -> egress-qos-map priority key via fw filters with mask */
     EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x100000/0x0ff00000 fw action skbedit priority 1", iface);
     EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x200000/0x0ff00000 fw action skbedit priority 2", iface);
     EXEC_CMD("tc filter add dev %s egress protocol all prio 1 handle 0x300000/0x0ff00000 fw action skbedit priority 3", iface);
-    /* ARP: EtherType 0x0806 - match-all u32 (mask=0 skips value check) */
+    /* ARP (EtherType 0x0806): match-all gives network control priority via fwmark set in utopia */
     EXEC_CMD("tc filter add dev %s egress protocol arp prio 2 u32 match u32 0 0 action skbedit priority 1", iface);
-    /* ICMPv6: IPv6 hdr word@4 = [PayloadLen(2)|NextHdr(1)|HopLimit(1)]; NextHdr=0x3a in bits 15:8 */
-    EXEC_CMD("tc filter add dev %s egress protocol ipv6 prio 2 u32 match u32 0x00003a00 0x0000ff00 at 4 action skbedit priority 1", iface);
-    /* DHCPv4: IP hdr word@8=[TTL|Proto|Cksum]; Proto=0x11; word@20=[UDPsrc|UDPdst]; dport=67 */
-    EXEC_CMD("tc filter add dev %s egress protocol ip prio 2 u32 match u32 0x00110000 0x00ff0000 at 8 match u32 0x00000043 0x0000ffff at 20 action skbedit priority 1", iface);
-    /* DHCPv4: same but dport=68 (BOOTP client) */
-    EXEC_CMD("tc filter add dev %s egress protocol ip prio 2 u32 match u32 0x00110000 0x00ff0000 at 8 match u32 0x00000044 0x0000ffff at 20 action skbedit priority 1", iface);
-    /* DHCPv6: IPv6 word@4 NextHdr=0x11(UDP); word@40=[UDPsrc|UDPdst]; dport 546-547 via mask 0xfffe */
-    EXEC_CMD("tc filter add dev %s egress protocol ipv6 prio 2 u32 match u32 0x00001100 0x0000ff00 at 4 match u32 0x00000222 0x0000fffe at 40 action skbedit priority 1", iface);
 }
 #endif
 
