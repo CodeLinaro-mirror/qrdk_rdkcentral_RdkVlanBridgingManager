@@ -128,8 +128,8 @@ static ANSC_STATUS Vlan_DeleteInterface(PDML_VLAN p_Vlan)
           return ANSC_STATUS_FAILURE;
      }
 
-     v_secure_system("ip link set %s down", p_Vlan->Name);
-     v_secure_system("ip link delete %s", p_Vlan->Name);
+     EXEC_CMD("ip link set %s down", p_Vlan->Name);
+     EXEC_CMD("ip link delete %s", p_Vlan->Name);
 
      return ANSC_STATUS_SUCCESS;
 }
@@ -737,8 +737,8 @@ void * Vlan_Enable(void *Arg)
             }
             else
 #else
-            v_secure_system("ip link set %s down", pEntry->Name);
-            v_secure_system("ip link delete %s",pEntry->Name);
+            EXEC_CMD("ip link set %s down", pEntry->Name);
+            EXEC_CMD("ip link delete %s",pEntry->Name);
 #endif
             {  
                 CcspTraceInfo(("%s - %s:Successfully deleted VLAN interface %s\n", __FUNCTION__, VLAN_MARKER_VLAN_IF_DELETE, pEntry->Name));
