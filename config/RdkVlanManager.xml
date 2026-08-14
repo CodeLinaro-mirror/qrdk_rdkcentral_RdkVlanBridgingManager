@@ -205,7 +205,7 @@
       </parameter>
       <parameter>
        <name>UntaggedVlanType</name>
-       <type> string: Bridge(0),MacvlanPrivate(1),MacvlanVepa(2),MacvlanBridge(3),MacvlanPassthru(4),MacvlanSource(5),VlanTag0(6),Tagged(7) </type>
+       <type> string: MacvlanPrivate(0),MacvlanVepa(1),MacvlanBridge(2),MacvlanPassthru(3),MacvlanSource(4),VlanTag0(5),Bridge(6),Tagged(7) </type>
        <syntax>uint32/mapped</syntax>
        <writable>false</writable>
       </parameter>

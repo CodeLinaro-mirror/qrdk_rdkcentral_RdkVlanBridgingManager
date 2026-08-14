@@ -611,7 +611,7 @@ static ANSC_STATUS Vlan_CreateTaggedInterface(PDML_VLAN pEntry)
         return ANSC_STATUS_FAILURE;
     }
 
-    EXEC_CMD("ip link add link %s name %s type vlan id %u", pEntry->Alias, pEntry->Name, pEntry->VLANId);
+    EXEC_CMD("ip link add link %s name %s type vlan id %u", pEntry->BaseInterface, pEntry->Name, pEntry->VLANId);
     EXEC_CMD("ip link set %s up", pEntry->Name);
 
     if (Vlan_SetMacAddr(pEntry) == ANSC_STATUS_FAILURE)

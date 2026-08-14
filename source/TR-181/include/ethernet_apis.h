@@ -93,11 +93,11 @@ typedef enum {
  * interface on top of the base interface.
  *
  * Values map to the DM parameter UntaggedVlanType (uint32, mapped to string):
- *   0=Bridge, 1=MacvlanPrivate, 2=MacvlanVepa, 3=MacvlanBridge,
- *   4=MacvlanPassthru, 5=MacvlanSource, 6=VlanTag0, 7=TaggedVlan
+ *   0=MacvlanPrivate, 1=MacvlanVepa, 2=MacvlanBridge, 3=MacvlanPassthru,
+ *   4=MacvlanSource, 5=VlanTag0, 6=Bridge, 7=TaggedVlan
  *
  * MACVLAN modes correspond exactly to kernel ip-link(8) macvlan modes.
- * UNTAGGED_MACVLAN_PRIVATE is the default (used when not otherwise configured).
+ * UNTAGGED_MACVLAN_PRIVATE (0) is the default — an absent PSM key returns 0.
  */
 typedef enum
 _UNTAGGED_VLAN_TYPE

@@ -85,7 +85,7 @@ An untagged WAN over a Linux bridge (default type):
 
 ```
 psmcli set dmsb.vlanmanager.1.vlanid -1
-psmcli set dmsb.vlanmanager.1.untaggedvlantype 0    # UNTAGGED_SIMPLE_BRIDGE
+psmcli set dmsb.vlanmanager.1.untaggedvlantype 6    # UNTAGGED_SIMPLE_BRIDGE
 psmcli set dmsb.vlanmanager.1.baseinterface eth0
 ```
 
@@ -115,13 +115,13 @@ flowchart TD
 
 | Value | Name | Realisation | Kernel command |
 |-------|------|-------------|----------------|
-| 0 | `Bridge` (default) | Linux bridge, base iface enslaved | `brctl addbr` / `addif` |
-| 1 | `MacvlanPrivate` | macvlan, endpoints isolated | `ip link add … type macvlan mode private` |
-| 2 | `MacvlanVepa` | macvlan, hairpin via external switch | `… mode vepa` |
-| 3 | `MacvlanBridge` | macvlan, local forwarding between endpoints | `… mode bridge` |
-| 4 | `MacvlanPassthru` | macvlan, single endpoint owns the lower dev | `… mode passthru` |
-| 5 | `MacvlanSource` | macvlan, source-MAC filtered | `… mode source` |
-| 6 | `VlanTag0` | 802.1Q VLAN with tag id 0 (priority-tagged) | `ip link add … type vlan id 0` |
+| 0 | `MacvlanPrivate` (default) | macvlan, endpoints isolated | `ip link add … type macvlan mode private` |
+| 1 | `MacvlanVepa` | macvlan, hairpin via external switch | `… mode vepa` |
+| 2 | `MacvlanBridge` | macvlan, local forwarding between endpoints | `… mode bridge` |
+| 3 | `MacvlanPassthru` | macvlan, single endpoint owns the lower dev | `… mode passthru` |
+| 4 | `MacvlanSource` | macvlan, source-MAC filtered | `… mode source` |
+| 5 | `VlanTag0` | 802.1Q VLAN with tag id 0 (priority-tagged) | `ip link add … type vlan id 0` |
+| 6 | `Bridge` | Linux bridge, base iface enslaved | `brctl addbr` / `addif` |
 | 7 | `Tagged` | conventional tagged VLAN (display only) | set automatically when `vlanid > 0` |
 
 The MACVLAN modes map 1:1 to the kernel `ip-link(8)` macvlan modes.
@@ -131,19 +131,19 @@ The MACVLAN modes map 1:1 to the kernel `ip-link(8)` macvlan modes.
 | Use case | Recommended type |
 |----------|------------------|
 | Operator delivers WAN on a **tagged** VLAN | tagged (`vlanid > 0`) |
-| Priority-tagged frames (VID 0, PCP set) with QoS | `VlanTag0 (6)` |
-| Plain untagged WAN, want a bridge you can add more ports to later | `Bridge (0)` — default |
-| Untagged WAN needing its **own MAC** distinct from the base iface, isolated | `MacvlanPrivate (1)` |
-| Multiple virtual endpoints that must talk to each other locally | `MacvlanBridge (3)` |
-| Deployment behind a VEPA-capable switch (hairpin) | `MacvlanVepa (2)` |
-| One endpoint that must fully own the base iface (e.g. move its MAC) | `MacvlanPassthru (4)` |
-| Restrict to a fixed allow-list of source MACs | `MacvlanSource (5)` |
+| Priority-tagged frames (VID 0, PCP set) with QoS | `VlanTag0 (5)` |
+| Plain untagged WAN, want a bridge you can add more ports to later | `Bridge (6)` |
+| Untagged WAN needing its **own MAC** distinct from the base iface, isolated | `MacvlanPrivate (0)` — default |
+| Multiple virtual endpoints that must talk to each other locally | `MacvlanBridge (2)` |
+| Deployment behind a VEPA-capable switch (hairpin) | `MacvlanVepa (1)` |
+| One endpoint that must fully own the base iface (e.g. move its MAC) | `MacvlanPassthru (3)` |
+| Restrict to a fixed allow-list of source MACs | `MacvlanSource (4)` |
 
 Notes:
 - Only **tagged** and **VlanTag0** interfaces support 802.1p `egress-qos-map`;
   bridge and macvlan types cannot carry per-priority PCP marking (see the
   sequence-diagram doc, *Markings*).
-- `Bridge (0)` inherits the base interface MAC automatically (kernel sets the
+- `Bridge (6)` inherits the base interface MAC automatically (kernel sets the
   bridge MAC to the lowest enslaved MAC). The macvlan types honour the EthLink
   `MACAddrOffSet` to derive a distinct MAC.
 
@@ -165,4 +165,4 @@ init and is not writable from the data model — change it via PSM and restart, 
 via boot-time config once available.
 
 Mapped string values:
-`Bridge(0),MacvlanPrivate(1),MacvlanVepa(2),MacvlanBridge(3),MacvlanPassthru(4),MacvlanSource(5),VlanTag0(6),Tagged(7)`
+`MacvlanPrivate(0),MacvlanVepa(1),MacvlanBridge(2),MacvlanPassthru(3),MacvlanSource(4),VlanTag0(5),Bridge(6),Tagged(7)`

@@ -871,6 +871,49 @@ ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlan
     return returnStatus;
 }
 
+#if !defined(VLAN_MANAGER_HAL_ENABLED)
+static const char * const macvlan_modes[] = {
+    [UNTAGGED_MACVLAN_PRIVATE]  = "private",
+    [UNTAGGED_MACVLAN_VEPA]     = "vepa",
+    [UNTAGGED_MACVLAN_BRIDGE]   = "bridge",
+    [UNTAGGED_MACVLAN_PASSTHRU] = "passthru",
+    [UNTAGGED_MACVLAN_SOURCE]   = "source",
+};
+
+static void EthLink_IpLinkCreateMacvlan(const char *base, const char *name, untagged_vlan_type_t type)
+{
+    const char *mode = ((unsigned)type < sizeof(macvlan_modes)/sizeof(macvlan_modes[0]) && macvlan_modes[type])
+                       ? macvlan_modes[type] : "private";
+    EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+             name, name, name);
+    EXEC_CMD("ip link add link %s name %s type macvlan mode %s", base, name, mode);
+    EXEC_CMD("ip link set %s allmulticast on", name);
+    EXEC_CMD("ip link set %s multicast on", name);
+    EXEC_CMD("ip link set %s mtu 1500", name);
+}
+
+static void EthLink_IpLinkCreateBridge(const char *base, const char *name)
+{
+    EXEC_CMD("ip link show %s > /dev/null 2>&1 || brctl addbr %s", name, name);
+    if ((strcmp(base, name) != 0) && (base[0] != '\0'))
+        EXEC_CMD("brctl addif %s %s", name, base);
+}
+
+static void EthLink_IpLinkDeleteMacvlan(const char *name)
+{
+    EXEC_CMD("ip link set %s down", name);
+    EXEC_CMD("ip link delete %s", name);
+}
+
+static void EthLink_IpLinkDeleteBridge(const char *base, const char *name)
+{
+    if ((strcmp(base, name) != 0) && (base[0] != '\0'))
+        EXEC_CMD("brctl delif %s %s", name, base);
+    EXEC_CMD("ifconfig %s down", name);
+    EXEC_CMD("brctl delbr %s", name);
+}
+#endif /* !VLAN_MANAGER_HAL_ENABLED */
+
 static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
 {
     ANSC_STATUS returnStatus = ANSC_STATUS_SUCCESS;
@@ -903,60 +946,28 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
  */
     EthLink_CreateBridgeInterface(TRUE);
 #else
-    /*
-     * Consolidated untagged (VLANID <= 0) interface creation. The realisation
-     * method is selected by pEntry->UnTaggedVlanType, which is handed over from
-     * the VLAN entry (Vlan_SetEthLink) or loaded from the EthLink defaults.
-     */
     CcspTraceInfo(("%s-%d: Creating untagged interface %s on base interface %s (type=%d, MAC offset=%d)\n",
                    __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface,
                    pEntry->UnTaggedVlanType, pEntry->MACAddrOffSet));
 
     switch (pEntry->UnTaggedVlanType)
     {
+        case TAGGED_VLAN:
+            /* tagged path handled by vlan_apis.c — nothing to do here */
+            break;
         case UNTAGGED_MACVLAN_PRIVATE:
         case UNTAGGED_MACVLAN_VEPA:
         case UNTAGGED_MACVLAN_BRIDGE:
         case UNTAGGED_MACVLAN_PASSTHRU:
         case UNTAGGED_MACVLAN_SOURCE:
         {
-            /* MACVLAN in the requested kernel mode (ip-link(8) macvlan). */
-            const char *macvlanMode;
-            switch (pEntry->UnTaggedVlanType)
-            {
-                case UNTAGGED_MACVLAN_VEPA:     macvlanMode = "vepa";     break;
-                case UNTAGGED_MACVLAN_BRIDGE:   macvlanMode = "bridge";   break;
-                case UNTAGGED_MACVLAN_PASSTHRU: macvlanMode = "passthru"; break;
-                case UNTAGGED_MACVLAN_SOURCE:   macvlanMode = "source";   break;
-                default:                        macvlanMode = "private";  break;
-            }
-
-            /* Delete any pre-existing interface with this name. */
-            EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
-                     pEntry->Name, pEntry->Name, pEntry->Name);
-
-            /* Create without custom MAC address — MAC is applied uniformly below. */
-            EXEC_CMD("ip link add link %s name %s type macvlan mode %s",
-                     pEntry->BaseInterface, pEntry->Name, macvlanMode);
-            EXEC_CMD("ip link set %s allmulticast on", pEntry->Name);
-            EXEC_CMD("ip link set %s multicast on", pEntry->Name);
-            EXEC_CMD("ip link set %s mtu 1500", pEntry->Name);
-            CcspTraceInfo(("%s-%d: Created MACVLAN(%s) interface %s\n",
-                           __FUNCTION__, __LINE__, macvlanMode, pEntry->Name));
+            EthLink_IpLinkCreateMacvlan(pEntry->BaseInterface, pEntry->Name, pEntry->UnTaggedVlanType);
             break;
         }
         case UNTAGGED_SIMPLE_BRIDGE:
         default:
         {
-            /* Default: Linux bridge via brctl. The base interface is enslaved
-             * to a bridge that carries untagged traffic. */
-            EXEC_CMD("ip link show %s > /dev/null 2>&1 || brctl addbr %s",
-                     pEntry->Name, pEntry->Name);
-            if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
-                (pEntry->BaseInterface[0] != '\0'))
-            {
-                EXEC_CMD("brctl addif %s %s", pEntry->Name, pEntry->BaseInterface);
-            }
+            EthLink_IpLinkCreateBridge(pEntry->BaseInterface, pEntry->Name);
             CcspTraceInfo(("%s-%d: Created bridge interface %s\n",
                            __FUNCTION__, __LINE__, pEntry->Name));
             break;
@@ -1010,29 +1021,21 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
 
     switch (pEntry->UnTaggedVlanType)
     {
-        case UNTAGGED_SIMPLE_BRIDGE:
-        default:
-        {
-            /* Simple Linux bridge teardown via brctl. */
-            if ((strcmp(pEntry->BaseInterface, pEntry->Name) != 0) &&
-                (pEntry->BaseInterface[0] != '\0'))
-            {
-                EXEC_CMD("brctl delif %s %s", pEntry->Name, pEntry->BaseInterface);
-            }
-            EXEC_CMD("ifconfig %s down", pEntry->Name);
-            EXEC_CMD("brctl delbr %s", pEntry->Name);
+        case TAGGED_VLAN:
             break;
-        }
-
         case UNTAGGED_MACVLAN_PRIVATE:
         case UNTAGGED_MACVLAN_VEPA:
         case UNTAGGED_MACVLAN_BRIDGE:
         case UNTAGGED_MACVLAN_PASSTHRU:
         case UNTAGGED_MACVLAN_SOURCE:
         {
-            /* macvlan and vlan tag-0 devices are removed with ip link. */
-            EXEC_CMD("ip link set %s down", pEntry->Name);
-            EXEC_CMD("ip link delete %s", pEntry->Name);
+            EthLink_IpLinkDeleteMacvlan(pEntry->Name);
+            break;
+        }
+        case UNTAGGED_SIMPLE_BRIDGE:
+        default:
+        {
+            EthLink_IpLinkDeleteBridge(pEntry->BaseInterface, pEntry->Name);
             break;
         }
     }
