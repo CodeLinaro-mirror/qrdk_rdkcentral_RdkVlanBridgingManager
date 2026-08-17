@@ -368,7 +368,9 @@ void * Vlan_Disable(void *Arg)
 
     pthread_mutex_lock(&vlan_access_mutex);
     //Set EthLink to False. it will take care UnTagged Created Vlan Interface
-    if (Vlan_SetEthLink(pEntry, FALSE, FALSE) == ANSC_STATUS_FAILURE)
+    
+    BOOL priTag = (pEntry->VLANId > 0 || pEntry->UnTaggedVlanType == UNTAGGED_VLAN_TAG_0) ? TRUE : FALSE;
+    if (Vlan_SetEthLink(pEntry, FALSE, priTag) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s-%d: Failed to Disable EthLink\n", __FUNCTION__, __LINE__));
     }
