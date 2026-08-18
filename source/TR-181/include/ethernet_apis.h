@@ -34,7 +34,7 @@
 
 #ifndef  _ETHERNET_APIS_H
 #define  _ETHERNET_APIS_H
-
+#include <stdarg.h>
 #include "vlan_mgr_apis.h"
 #include "ssp_global.h"
 #include "vlan_eth_hal.h"
@@ -87,6 +87,32 @@ typedef enum {
                ETH_IF_ERROR 
 }ethernet_link_status_e;
 
+/*
+ * Untagged VLAN interface type.
+ * Selects how VlanManager realises an untagged (VLANID <= 0) virtual
+ * interface on top of the base interface.
+ *
+ * Values map to the DM parameter UntaggedVlanType (uint32, mapped to string):
+ *   0=MacvlanPrivate, 1=MacvlanVepa, 2=MacvlanBridge, 3=MacvlanPassthru,
+ *   4=MacvlanSource, 5=VlanTag0, 6=Bridge, 7=TaggedVlan
+ *
+ * MACVLAN modes correspond exactly to kernel ip-link(8) macvlan modes.
+ * UNTAGGED_MACVLAN_PRIVATE (0) is the default — an absent PSM key returns 0.
+ */
+typedef enum
+_UNTAGGED_VLAN_TYPE
+{
+    UNTAGGED_MACVLAN_PRIVATE  = 0, /* Default: macvlan mode private                 */
+    UNTAGGED_MACVLAN_VEPA     = 1, /* macvlan mode vepa                             */
+    UNTAGGED_MACVLAN_BRIDGE   = 2, /* macvlan mode bridge                           */
+    UNTAGGED_MACVLAN_PASSTHRU = 3, /* macvlan mode passthru                         */
+    UNTAGGED_MACVLAN_SOURCE   = 4, /* macvlan mode source                           */
+    UNTAGGED_VLAN_TAG_0       = 5, /* 802.1Q VLAN tag id 0                          */
+    UNTAGGED_SIMPLE_BRIDGE    = 6, /* Linux bridge via brctl                        */
+    TAGGED_VLAN               = 7  /* Tagged VLAN (VLANID > 0). DML path only.      */
+}
+untagged_vlan_type_t;
+
 typedef  struct
 _COSA_DML_MARKING
 {
@@ -111,8 +137,9 @@ _DML_ETHERNET
     CHAR                 LowerLayers[1024];
     CHAR                 Path[1024];
     CHAR                 MACAddress[18];
-    LONG                 MACAddrOffSet;  // Changed to LONG to support negative offsets
+    INT                  MACAddrOffSet;  /* Signed offset added to PAM base MAC. INT matches GetParamIntValue handler. */
     BOOLEAN              PriorityTagging;
+    untagged_vlan_type_t UnTaggedVlanType; // Untagged VLAN realisation type (bridge/macvlan/tag0)
     UINT                 NumberofMarkingEntries;
     PCOSA_DML_MARKING    pstDataModelMarking;
 }
@@ -232,5 +259,9 @@ void* EthLink_RefreshHandleThread(void *Arg);
 ANSC_STATUS EthLink_GetMacAddr( PDML_ETHERNET pEntry );
 ANSC_STATUS EthLink_SendVirtualIfaceVlanStatus(char *path, char *vlanStatus);
 ANSC_STATUS DmlEthGetParamValues(char *pComponent, char *pBus, char *pParamName, char *pReturnVal);
-ANSC_STATUS EthLink_GetMarking(char *ifname, vlan_configuration_t *pVlanCfg);
+ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg);
+
+int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...);
+#define EXEC_CMD(fmt, ...) EthLink_RunCmd(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
+
 #endif

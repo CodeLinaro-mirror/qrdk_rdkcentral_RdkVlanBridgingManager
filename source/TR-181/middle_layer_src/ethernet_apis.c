@@ -37,6 +37,8 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <stdarg.h>
 #include <net/if.h>
 #include <syscfg/syscfg.h>
 
@@ -95,6 +97,56 @@
 extern ANSC_HANDLE                        g_MessageBusHandle;
         int                               sysevent_fd = -1;
         token_t                           sysevent_token;
+
+int EthLink_RunCmd(const char *caller, int line, const char *fmt, ...)
+{
+    char    cmd[512]   = {0};
+    char    redir[544] = {0};
+    va_list args;
+    FILE   *fp;
+    char    buf[256]   = {0};
+    int     status;
+
+    va_start(args, fmt);
+    vsnprintf(cmd, sizeof(cmd) - 1, fmt, args);
+    va_end(args);
+
+    CcspTraceInfo(("%s-%d: exec: %s\n", caller, line, cmd));
+
+    snprintf(redir, sizeof(redir) - 1, "%s 2>&1", cmd);
+    fp = popen(redir, "r");
+    if (fp == NULL)
+    {
+        CcspTraceError(("%s-%d: popen failed for: %s\n", caller, line, cmd));
+        return -1;
+    }
+
+    while (fgets(buf, sizeof(buf), fp) != NULL)
+    {
+        size_t len = strlen(buf);
+        if (len > 0 && buf[len - 1] == '\n')
+            buf[len - 1] = '\0';
+        if (buf[0] != '\0')
+            CcspTraceInfo(("%s-%d: [output] %s\n", caller, line, buf));
+    }
+
+    status = pclose(fp);
+    if (status == -1)
+    {
+        CcspTraceError(("%s-%d: pclose failed: %s\n", caller, line, cmd));
+        return -1;
+    }
+    if (WIFEXITED(status))
+    {
+        int rc = WEXITSTATUS(status);
+        if (rc != 0)
+            CcspTraceError(("%s-%d: failed (rc=%d): %s\n", caller, line, rc, cmd));
+        return rc;
+    }
+    if (WIFSIGNALED(status))
+        CcspTraceError(("%s-%d: killed by signal %d: %s\n", caller, line, WTERMSIG(status), cmd));
+    return -1;
+}
 
 static ANSC_STATUS DmlEthSetParamValues(const char *pComponent, char *pBus, char *pParamName, char *pParamVal, enum dataType_e type, unsigned int bCommitFlag);
 static ANSC_STATUS DmlEthGetParamNames(char *pComponent, char *pBus, char *pParamName, char a2cReturnVal[][256], int *pReturnSize);
@@ -765,79 +817,102 @@ static ANSC_STATUS EthLink_AddMarking(PDML_ETHERNET pEntry)
     return ANSC_STATUS_SUCCESS;
 }
 
-ANSC_STATUS EthLink_GetMarking(char *ifname, vlan_configuration_t *pVlanCfg)
+ANSC_STATUS EthLink_GetMarking(PDML_ETHERNET pEntry, vlan_configuration_t *pVlanCfg)
 {
-    INT iLoopCount = 0;
-    BOOL Found = FALSE;
     ANSC_STATUS returnStatus = ANSC_STATUS_FAILURE;
 
-    if ((ifname == NULL) || (pVlanCfg == NULL))
+    if ((pEntry == NULL) || (pVlanCfg == NULL))
     {
         CcspTraceError(("%s Invalid Memory\n", __FUNCTION__));
         return ANSC_STATUS_FAILURE;
     }
 
-    PDATAMODEL_ETHERNET    pMyObject    = (PDATAMODEL_ETHERNET)g_pBEManager->hEth;
-    PDML_ETHERNET          p_EthLink    = NULL;
-
-    if (pMyObject->ulEthlinkInstanceNumber > 0)
+    if (pEntry != NULL)
     {
-        for(iLoopCount = 0; iLoopCount < pMyObject->ulEthlinkInstanceNumber; iLoopCount++)
+        //Vlan Marking Info
+        CcspTraceInfo(("%s-%d: NumberofMarkingEntries=%d \n", __FUNCTION__, __LINE__, pEntry->NumberofMarkingEntries));
+        if (pEntry->NumberofMarkingEntries > 0)
         {
-            p_EthLink = (PDML_ETHERNET)&(pMyObject->EthLink[iLoopCount]);
-            if (p_EthLink != NULL)
-            {
-                if (strncmp(p_EthLink->Alias, ifname, strlen(ifname)) == 0)
-                {
-                    Found = TRUE;
-                    break;
-                }
-            }
-        }
-        if (Found && (p_EthLink != NULL))
-        {
-            //Vlan Marking Info
-            CcspTraceInfo(("%s-%d: NumberofMarkingEntries=%d \n", __FUNCTION__, __LINE__, p_EthLink->NumberofMarkingEntries));
-            if (p_EthLink->NumberofMarkingEntries > 0)
-            {
-                //allocate memory to vlan_skb_config_t, free it once used.
-                pVlanCfg->skbMarkingNumOfEntries = p_EthLink->NumberofMarkingEntries;
-                pVlanCfg->skb_config = (vlan_skb_config_t*)malloc( p_EthLink->NumberofMarkingEntries * sizeof(vlan_skb_config_t) );
+            //allocate memory to vlan_skb_config_t, free it once used.
+            pVlanCfg->skbMarkingNumOfEntries = pEntry->NumberofMarkingEntries;
+            pVlanCfg->skb_config = (vlan_skb_config_t*)malloc( pEntry->NumberofMarkingEntries * sizeof(vlan_skb_config_t) );
 
-                if( NULL == pVlanCfg->skb_config )
+            if( NULL == pVlanCfg->skb_config )
+            {
+                CcspTraceError(("%s - %d : Invalid SKB priority\n", __FUNCTION__, __LINE__));
+                return ANSC_STATUS_FAILURE;
+            }
+
+            for(int i = 0; i < pEntry->NumberofMarkingEntries; i++)
+            {
+                PCOSA_DML_MARKING pDataModelMarking = (PCOSA_DML_MARKING)&(pEntry->pstDataModelMarking[i]);
+                if ((pDataModelMarking != NULL) && (pVlanCfg->skb_config != NULL))
                 {
-                    CcspTraceError(("%s - %d : Invalid SKB priority\n", __FUNCTION__, __LINE__));
+                    strncpy(pVlanCfg->skb_config[i].alias, pDataModelMarking->Alias, sizeof(pVlanCfg->skb_config[i].alias) - 1);
+                    pVlanCfg->skb_config[i].skbPort = pDataModelMarking->SKBPort;
+                    pVlanCfg->skb_config[i].skbMark = pDataModelMarking->SKBMark;
+                    pVlanCfg->skb_config[i].skbEthPriorityMark = pDataModelMarking->EthernetPriorityMark;
+                    CcspTraceInfo(("%s-%d: Ins[%d] Alias[%s] SKBPort[%u] SKBMark[%u] EthernetPriorityMark[%d]\n", __FUNCTION__,
+                                __LINE__, (i + 1), pVlanCfg->skb_config[i].alias, pVlanCfg->skb_config[i].skbPort,
+                                pVlanCfg->skb_config[i].skbMark, pVlanCfg->skb_config[i].skbEthPriorityMark ));
+                }
+                else
+                {
+                    CcspTraceError(("%s-%d: pDataModelMarking Or pVlanCfg->skb_config are Null \n", __FUNCTION__, __LINE__));
+                    free(pVlanCfg->skb_config);
+                    pVlanCfg->skb_config = NULL;
                     return ANSC_STATUS_FAILURE;
                 }
-
-                for(int i = 0; i < p_EthLink->NumberofMarkingEntries; i++)
-                {
-                    PCOSA_DML_MARKING pDataModelMarking = (PCOSA_DML_MARKING)&(p_EthLink->pstDataModelMarking[i]);
-                    if ((pDataModelMarking != NULL) && (pVlanCfg->skb_config != NULL))
-                    {
-                        strncpy(pVlanCfg->skb_config[i].alias, pDataModelMarking->Alias, sizeof(pVlanCfg->skb_config[i].alias) - 1);
-                        pVlanCfg->skb_config[i].skbPort = pDataModelMarking->SKBPort;
-                        pVlanCfg->skb_config[i].skbMark = pDataModelMarking->SKBMark;
-                        pVlanCfg->skb_config[i].skbEthPriorityMark = pDataModelMarking->EthernetPriorityMark;
-                        CcspTraceInfo(("%s-%d: Ins[%d] Alias[%s] SKBPort[%u] SKBMark[%u] EthernetPriorityMark[%d]\n", __FUNCTION__,
-                                    __LINE__, (i + 1), pVlanCfg->skb_config[i].alias, pVlanCfg->skb_config[i].skbPort,
-                                    pVlanCfg->skb_config[i].skbMark, pVlanCfg->skb_config[i].skbEthPriorityMark ));
-                    }
-                    else
-                    {
-                        CcspTraceError(("%s-%d: pDataModelMarking Or pVlanCfg->skb_config are Null \n", __FUNCTION__, __LINE__));
-                        free(pVlanCfg->skb_config);
-                        pVlanCfg->skb_config = NULL;
-                        return ANSC_STATUS_FAILURE;
-                    }
-                }
             }
-            returnStatus = ANSC_STATUS_SUCCESS;
         }
+        returnStatus = ANSC_STATUS_SUCCESS;
     }
 
     return returnStatus;
 }
+
+#if !defined(VLAN_MANAGER_HAL_ENABLED)
+static const char * const macvlan_modes[] = {
+    [UNTAGGED_MACVLAN_PRIVATE]  = "private",
+    [UNTAGGED_MACVLAN_VEPA]     = "vepa",
+    [UNTAGGED_MACVLAN_BRIDGE]   = "bridge",
+    [UNTAGGED_MACVLAN_PASSTHRU] = "passthru",
+    [UNTAGGED_MACVLAN_SOURCE]   = "source",
+};
+
+static void EthLink_IpLinkCreateMacvlan(const char *base, const char *name, untagged_vlan_type_t type)
+{
+    const char *mode = ((unsigned)type < sizeof(macvlan_modes)/sizeof(macvlan_modes[0]) && macvlan_modes[type])
+                       ? macvlan_modes[type] : "private";
+    EXEC_CMD("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)",
+             name, name, name);
+    EXEC_CMD("ip link add link %s name %s type macvlan mode %s", base, name, mode);
+    EXEC_CMD("ip link set %s allmulticast on", name);
+    EXEC_CMD("ip link set %s multicast on", name);
+    EXEC_CMD("ip link set %s mtu 1500", name);
+}
+
+static void EthLink_IpLinkCreateBridge(const char *base, const char *name)
+{
+    EXEC_CMD("ip link show %s > /dev/null 2>&1 || brctl addbr %s", name, name);
+    if ((strcmp(base, name) != 0) && (base[0] != '\0'))
+        EXEC_CMD("brctl addif %s %s", name, base);
+}
+
+static void EthLink_IpLinkDeleteMacvlan(const char *name)
+{
+    EXEC_CMD("ip link set %s down", name);
+    EXEC_CMD("ip link delete %s", name);
+}
+
+static void EthLink_IpLinkDeleteBridge(const char *base, const char *name)
+{
+    if ((strcmp(base, name) != 0) && (base[0] != '\0'))
+        EXEC_CMD("brctl delif %s %s", name, base);
+    EXEC_CMD("ifconfig %s down", name);
+    EXEC_CMD("brctl delbr %s", name);
+}
+#endif /* !VLAN_MANAGER_HAL_ENABLED */
 
 static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
 {
@@ -858,7 +933,7 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
     VlanCfg.VLANId = DEFAULT_VLAN_ID;
     VlanCfg.TPId   = 0;
 
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_FAILURE)
+    if (EthLink_GetMarking(pEntry, &VlanCfg) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s Failed to Get Marking, so Can't Create Vlan Interface(%s) \n", __FUNCTION__, pEntry->Alias));
         return ANSC_STATUS_FAILURE;
@@ -871,48 +946,53 @@ static ANSC_STATUS EthLink_CreateUnTaggedInterface(PDML_ETHERNET pEntry)
  */
     EthLink_CreateBridgeInterface(TRUE);
 #else
-    // Create untagged interface using MACVLAN for truly untagged traffic
-    CcspTraceInfo(("%s-%d: Creating MACVLAN untagged interface %s on base interface %s with MAC offset %ld\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface, pEntry->MACAddrOffSet));
-    
-    // Check if interface already exists (as MACVLAN or bridge) and delete it
-    CcspTraceInfo(("%s-%d: Checking if interface %s already exists\n", __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link show %s > /dev/null 2>&1 && (ip link set %s down; ip link delete %s)", 
-                    pEntry->Name, pEntry->Name, pEntry->Name);
-    
-    // Get MAC address with offset applied
-    if (ANSC_STATUS_SUCCESS != EthLink_GetMacAddr(pEntry))
+    CcspTraceInfo(("%s-%d: Creating untagged interface %s on base interface %s (type=%d, MAC offset=%d)\n",
+                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->BaseInterface,
+                   pEntry->UnTaggedVlanType, pEntry->MACAddrOffSet));
+
+    switch (pEntry->UnTaggedVlanType)
     {
-        CcspTraceError(("%s-%d: Failed to get MAC address, creating MACVLAN without custom MAC\n", __FUNCTION__, __LINE__));
-        // Create MACVLAN without setting custom MAC - kernel will assign one
-        v_secure_system("ip link add link %s name %s type macvlan mode private",
-                        pEntry->BaseInterface, pEntry->Name);
+        case TAGGED_VLAN:
+            /* tagged path handled by vlan_apis.c — nothing to do here */
+            break;
+        case UNTAGGED_MACVLAN_PRIVATE:
+        case UNTAGGED_MACVLAN_VEPA:
+        case UNTAGGED_MACVLAN_BRIDGE:
+        case UNTAGGED_MACVLAN_PASSTHRU:
+        case UNTAGGED_MACVLAN_SOURCE:
+        {
+            EthLink_IpLinkCreateMacvlan(pEntry->BaseInterface, pEntry->Name, pEntry->UnTaggedVlanType);
+            break;
+        }
+        case UNTAGGED_SIMPLE_BRIDGE:
+        default:
+        {
+            EthLink_IpLinkCreateBridge(pEntry->BaseInterface, pEntry->Name);
+            CcspTraceInfo(("%s-%d: Created bridge interface %s\n",
+                           __FUNCTION__, __LINE__, pEntry->Name));
+            break;
+        }
+    }
+
+    /* Apply MAC address for all interface types.
+     * EthLink_GetMacAddr computes PAM base + MACAddrOffSet and stores the
+     * result in pEntry->MACAddress.  Set it before bringing the interface up
+     * so there is no window with an incorrect MAC. */
+    if (ANSC_STATUS_SUCCESS == EthLink_GetMacAddr(pEntry))
+    {
+        EXEC_CMD("ip link set dev %s address %s", pEntry->Name, pEntry->MACAddress);
+        CcspTraceInfo(("%s-%d: MAC %s (offset %d) applied to %s\n",
+                       __FUNCTION__, __LINE__,
+                       pEntry->MACAddress, pEntry->MACAddrOffSet, pEntry->Name));
     }
     else
     {
-        CcspTraceInfo(("%s-%d: Using MAC address: %s (offset: %ld)\n", 
-                       __FUNCTION__, __LINE__, pEntry->MACAddress, pEntry->MACAddrOffSet));
-        
-        // Create MACVLAN interface with custom MAC
-        v_secure_system("ip link add link %s name %s address %s type macvlan mode private",
-                        pEntry->BaseInterface, pEntry->Name, pEntry->MACAddress);
+        CcspTraceInfo(("%s-%d: EthLink_GetMacAddr failed, using default MAC for %s\n",
+                       __FUNCTION__, __LINE__, pEntry->Name));
     }
-    
-    // Set the allmulticast and multicast on for MACVLAN interface
-    CcspTraceInfo(("%s-%d: Setting allmulticast amd multicast on for MACVLAN interface %s\n",
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link set %s allmulticast on", pEntry->Name);
-    v_secure_system("ip link set %s multicast on", pEntry->Name);
 
-    // Set MTU to default 1500
-    CcspTraceInfo(("%s-%d: Setting MTU to 1500 for MACVLAN interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    v_secure_system("ip link set %s mtu 1500", pEntry->Name);
-    
-    v_secure_system("ip link set %s up", pEntry->Name);
-    
-    CcspTraceInfo(("%s-%d: Successfully created MACVLAN untagged interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
+    /* Bring up — common for all interface types. */
+    EXEC_CMD("ip link set %s up", pEntry->Name);
 
 #endif
     //Free VlanCfg skb_config memory
@@ -936,12 +1016,30 @@ static ANSC_STATUS EthLink_DeleteUnTaggedInterface(PDML_ETHERNET pEntry)
         return ANSC_STATUS_FAILURE;
     }
 
-    CcspTraceInfo(("%s-%d: Deleting untagged VLAN interface %s\n", 
-                   __FUNCTION__, __LINE__, pEntry->Name));
-    
-    v_secure_system("ip link set %s down", pEntry->Name);
-    v_secure_system("ip link delete %s", pEntry->Name);
-    
+    CcspTraceInfo(("%s-%d: Deleting untagged VLAN interface %s (type=%d)\n",
+                   __FUNCTION__, __LINE__, pEntry->Name, pEntry->UnTaggedVlanType));
+
+    switch (pEntry->UnTaggedVlanType)
+    {
+        case TAGGED_VLAN:
+            break;
+        case UNTAGGED_MACVLAN_PRIVATE:
+        case UNTAGGED_MACVLAN_VEPA:
+        case UNTAGGED_MACVLAN_BRIDGE:
+        case UNTAGGED_MACVLAN_PASSTHRU:
+        case UNTAGGED_MACVLAN_SOURCE:
+        {
+            EthLink_IpLinkDeleteMacvlan(pEntry->Name);
+            break;
+        }
+        case UNTAGGED_SIMPLE_BRIDGE:
+        default:
+        {
+            EthLink_IpLinkDeleteBridge(pEntry->BaseInterface, pEntry->Name);
+            break;
+        }
+    }
+
     CcspTraceInfo(("%s-%d: Successfully deleted untagged VLAN interface %s\n", 
                    __FUNCTION__, __LINE__, pEntry->Name));
 
@@ -1006,7 +1104,7 @@ static ANSC_STATUS EthLink_TriggerVlanRefresh(PDML_ETHERNET pEntry )
     /* TODO: Retry add making if DM gert fails. 
      * Currently we continue to create VLAN link, if Marking get fails to avoid WAN failure.
      */
-    if (EthLink_GetMarking(pEntry->Alias, &VlanCfg) == ANSC_STATUS_FAILURE)
+    if (EthLink_GetMarking(pEntry, &VlanCfg) == ANSC_STATUS_FAILURE)
     {
         CcspTraceError(("%s Failed to Get Marking, Creating Vlan Interface(%s) without marking \n", __FUNCTION__, pEntry->Alias));
     }

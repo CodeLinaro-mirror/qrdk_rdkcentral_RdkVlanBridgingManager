@@ -204,6 +204,12 @@
        <writable>true</writable>
       </parameter>
       <parameter>
+       <name>UntaggedVlanType</name>
+       <type> string: MacvlanPrivate(0),MacvlanVepa(1),MacvlanBridge(2),MacvlanPassthru(3),MacvlanSource(4),VlanTag0(5),Bridge(6),Tagged(7) </type>
+       <syntax>uint32/mapped</syntax>
+       <writable>false</writable>
+      </parameter>
+      <parameter>
        <name>X_RDK_BaseInterface</name>
        <type>string(64)</type>
        <syntax>string</syntax>

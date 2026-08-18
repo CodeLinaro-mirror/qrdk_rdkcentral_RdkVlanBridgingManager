@@ -38,6 +38,7 @@
 #include "vlan_mgr_apis.h"
 #include "ssp_global.h"
 #include "secure_wrapper.h"
+#include "ethernet_apis.h"
 
 /* * Telemetry Markers */
 #define VLAN_MARKER_VLAN_IF_CREATE          "RDKB_VLAN_CREATE"
@@ -50,6 +51,7 @@
 #define PSM_VLANMANAGER_LOWERLAYERS       "dmsb.vlanmanager.%d.lowerlayers"
 #define PSM_VLANMANAGER_VLANID            "dmsb.vlanmanager.%d.vlanid"
 #define PSM_VLANMANAGER_TPID              "dmsb.vlanmanager.%d.tpid"
+#define PSM_VLANMANAGER_UNTAGGEDVLANTYPE  "dmsb.vlanmanager.%d.untaggedvlantype"
 #define PSM_VLANMANAGER_BASEINTERFACE     "dmsb.vlanmanager.%d.baseinterface"
 #define PSM_VLANMANAGER_PATH              "dmsb.vlanmanager.%d.path"
 
@@ -88,6 +90,7 @@ _DML_VLAN
     CHAR                 BaseInterface[64];
     INT                  VLANId;
     UINT                 TPId;
+    INT                  UnTaggedVlanType; /* untagged_vlan_type_t: how an untagged (VLANID<=0) iface is created */
     CHAR                 Path[1024];
 }
 DML_VLAN,  *PDML_VLAN;
@@ -96,6 +99,7 @@ static inline void DML_VLAN_INIT(PDML_VLAN pVlan)
 {
     pVlan->Enable            = FALSE;
     pVlan->Status            = VLAN_IF_DOWN;
+    pVlan->UnTaggedVlanType  = UNTAGGED_MACVLAN_PRIVATE; /* default */
 }
 
 /*************************************

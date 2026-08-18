@@ -35,6 +35,7 @@
 #include "vlan_mgr_apis.h"
 #include "vlan_apis.h"
 #include "vlan_internal.h"
+#include "ethernet_apis.h"
 #include "plugin_main_apis.h"
 #include "poam_irepfo_interface.h"
 #include "sys_definitions.h"
@@ -43,11 +44,14 @@
 
 /*TODO
  *Need to be Reviewed after Unification is finalised.
+ * Update: The unification is finalised, however to remove the below code, the respective platform have to use VLAN dicovery or boottime VLAN configuration based. on the region to replace this dynamic country based VLAN configuration. 
  */
 #define PSM_VLANMANAGER_CFG_COUNT  "dmsb.vlanmanager.cfg.count"
 #define PSM_VLANMANAGER_CFG_REGION "dmsb.vlanmanager.cfg.%d.region"
 #define PSM_VLANMANAGER_CFG_VLANID "dmsb.vlanmanager.cfg.%d.vlanid"
 #define PSM_VLANMANAGER_CFG_TPID   "dmsb.vlanmanager.cfg.%d.tpid"
+/* Note: UntaggedVlanType is not loaded per-cfg for the HUB4 regional flow;
+ * that flow always uses UNTAGGED_SIMPLE_BRIDGE (brctl) for untagged VLANs. */
 
 extern char                     g_Subsystem[32];
 extern ANSC_HANDLE              bus_handle;
@@ -278,6 +282,10 @@ static ANSC_STATUS VlanTerminationInitialize( ANSC_HANDLE hThisObject)
                 pVlan[nIndex].TPId = atoi(acPSMValue) ;
             }
 
+            /* Set UntaggedVlanType: tagged VLANs use TAGGED_VLAN (7); untagged VLANs
+             * default to UNTAGGED_MACVLAN_PRIVATE for the HUB4 regional flow. */
+            pVlan[nIndex].UnTaggedVlanType = (pVlan[nIndex].VLANId > 0) ? TAGGED_VLAN : UNTAGGED_MACVLAN_PRIVATE;
+
             /*TODO:
              *Need to be Removed Path From PSM Once RBUS Support Available in VlanManager and WanManager.
              */
@@ -375,6 +383,21 @@ static ANSC_STATUS VlanTerminationInitialize( ANSC_HANDLE hThisObject)
         if ( CCSP_SUCCESS == DmlVlanGetPSMRecordValue( acPSMQuery, acPSMValue ) )
         {
              pVlan[nIndex].TPId = atoi(acPSMValue) ;
+        }
+
+        /* Set UntaggedVlanType: tagged VLANs always use TAGGED_VLAN (7).
+         * For untagged VLANs load the type from PSM; falls back to UNTAGGED_MACVLAN_PRIVATE. */
+        if (pVlan[nIndex].VLANId > 0)
+        {
+            pVlan[nIndex].UnTaggedVlanType = TAGGED_VLAN;
+        }
+        else
+        {
+            snprintf( acPSMQuery, sizeof( acPSMQuery ), PSM_VLANMANAGER_UNTAGGEDVLANTYPE, nIndex + 1 );
+            if ( CCSP_SUCCESS == DmlVlanGetPSMRecordValue( acPSMQuery, acPSMValue ) )
+            {
+                 pVlan[nIndex].UnTaggedVlanType = atoi(acPSMValue) ;
+            }
         }
 
         /* get base interface from psm */
